@@ -1,0 +1,83 @@
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+
+# =========================
+# Python Virtual Environments
+# =========================
+venv/
+.venv/
+env/
+ENV/
+
+
+# =========================
+# Python Cache
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+
+# =========================
+# Build / Packaging
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+
+# =========================
+# PDFs / Local Documents
+# =========================
+*.pdf
+
+
+# =========================
+# RAG / Vector Store Files
+# =========================
+*.faiss
+*.index
+*.pkl
+
+.cache/
+cache/
+
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+
+# =========================
+# IDE / Editor Files
+# =========================
+.vscode/
+.idea/
+
+
+# =========================
+# Operating System Files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+# =========================
+# Temporary Files
+# =========================
+*.tmp
+*.temp
+~*
