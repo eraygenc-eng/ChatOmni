@@ -1,8 +1,10 @@
-from langchain.tools import tool
+from langchain.tools import tool, ToolRuntime
 from pathlib import Path
 from rag_pdf_assistant import RAGPipeline
 from typing import Literal
 import requests
+import uuid
+from src.context import Context
 
 
 @tool
@@ -134,3 +136,74 @@ def rag_pdf(question: str) -> str:
     """
     rag = get_rag_pipeline()
     return rag.ask(question)
+
+@tool
+def save_memory(
+    memory: str,
+    runtime: ToolRuntime[Context]
+) -> str:
+    """
+    Save information to the user's long-term memory.
+
+    Use this tool when the user explicitly asks to remember,
+    save, store, or not forget some information.
+    """
+
+    if runtime.store is None:
+        return "Long-term memory store is unavailable."
+
+    user_id = runtime.context.user_id
+
+    namespace = (
+        "users",
+        user_id,
+        "explicit_memories"
+    )
+
+    # Using uuid4, create a unique ID for each saved memory
+    memory_id = str(uuid.uuid4())
+
+    runtime.store.put(
+        namespace,
+        memory_id,
+        {
+            "memory": memory
+        }
+    )
+
+    return "Memory saved successfully."
+
+# For read saved memories from long-term memory
+@tool
+def get_saved_memories(
+    runtime: ToolRuntime[Context]
+) -> str:
+    """
+    Retrieve the user's previously saved long-term memories.
+    Use this when previously remembered user information may help answer the question.
+    """
+
+    if runtime.store is None:
+        return "Long-term memory store is unavailable."
+
+    user_id = runtime.context.user_id
+
+    namespace = (
+        "users",
+        user_id,
+        "explicit_memories"
+    )
+
+    memories = runtime.store.search(
+        namespace,
+        limit=100
+    )
+
+    if not memories:
+        return "No saved memories found."
+
+    return "\n".join(
+        f"- {item.value['memory']}"
+        for item in memories
+        if "memory" in item.value
+    )

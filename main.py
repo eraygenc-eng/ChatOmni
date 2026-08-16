@@ -2,10 +2,23 @@ from langchain.messages import AIMessage, AIMessageChunk
 from src.agent import get_agent
 from src.citations import get_web_sources
 from src.tools import set_rag_pdf
+from src.context import Context
 
 
 # Load the ChatOmni agent
 agent = get_agent()
+
+# Configuration for short-term memory
+config = {
+    "configurable": {
+        "thread_id": "current_chat"
+    }
+}
+
+# Configuration for long-term memory
+context = Context(
+    user_id="local_user"
+)
 
 print("ChatOmni is ready. Type 'exit' to stop.\n")
 
@@ -50,8 +63,10 @@ while True:
                 }
             ]
         },
+        config=config,
+        context=context,
         stream_mode=["messages", "updates"],
-        version="v2",
+        version="v2"
     ):
 
         # Stream LLM tokens as they are generated

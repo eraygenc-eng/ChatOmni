@@ -39,6 +39,7 @@ The agent analyzes the user's message and decides whether it should:
 * Search the web
 * Convert currencies
 * Search the currently loaded PDF document
+* Save or retrieve persistent user memory when appropriate
 
 This architecture allows new capabilities to be added as independent tools without redesigning the entire application.
 
@@ -58,7 +59,12 @@ ChatOmni Agent
   │
   ├── Web Search Tool
   │
-  └── RAG PDF Tool
+  ├── RAG PDF Tool
+  │
+  └── Memory Tools
+          │
+          ▼
+      PostgreSQL
 ```
 
 ---
@@ -267,6 +273,32 @@ Streaming also works after tool calls such as:
 The tool completes its required operation first, and the final language-model response begins streaming as soon as generation starts.
 
 ---
+## Conversation and Long-Term Memory
+
+ChatOmni now includes both **short-term conversation memory** and **persistent long-term user memory**.
+
+Short-term conversation context is handled with LangGraph's `InMemorySaver`, allowing the assistant to understand references to earlier messages within the active conversation.
+
+Long-term memory is backed by **PostgreSQL** through a persistent LangGraph store. This allows important user information to remain available even after ChatOmni is closed and started again.
+
+The assistant can:
+
+* Remember information when the user explicitly asks it to save or not forget something
+* Automatically save stable profile information that is likely to be useful in future conversations
+* Retrieve previously saved information when it becomes relevant
+* Keep temporary or one-time details out of long-term memory unless the user explicitly asks to save them
+
+Examples of profile information that can be saved automatically include:
+
+* Full name or preferred name
+* University, degree, or academic program
+* Current job, workplace, or professional role
+* Main field of study or specialization
+* Long-term academic or career goals
+* Important ongoing projects
+
+This persistent profile memory is separate from the planned persistent conversation-history system, which will later manage multiple saved chat sessions.
+---
 
 ## Multi-Tool Agent Behavior
 
@@ -319,6 +351,14 @@ This architecture allows ChatOmni to become progressively more capable as additi
 * Frankfurter Currency API
 * Custom Calculator Tool
 * Custom RAG PDF Tool
+* Custom Memory Tools
+
+### Memory & Persistence
+
+* LangGraph `InMemorySaver`
+* LangGraph persistent store
+* PostgreSQL
+* psycopg
 
 ### Core
 
@@ -344,7 +384,9 @@ chatomni/
 └── src/
     ├── agent.py
     ├── tools.py
-    └── citations.py
+    ├── citations.py
+    ├── context.py
+    └── memory.py
 ```
 
 The reusable RAG system is maintained as a separate Python package and integrated into ChatOmni through `RAGPipeline`.
@@ -423,45 +465,10 @@ ChatOmni is being developed incrementally.
 
 The next stages focus on turning the current tool-using agent into a complete conversational AI application.
 
-## 1. Conversation Memory
-
-The next major feature will be conversation memory.
-
-Currently, each request is processed independently at the application level.
-
-The goal is to allow ChatOmni to understand references to previous messages.
-
-Example:
-
-```text
-User: My favorite programming language is Python.
-
-User: What programming language did I say I preferred?
-
-ChatOmni: Python.
-```
-
-This will make ChatOmni behave more like a continuous conversation rather than a sequence of isolated requests.
 
 ---
 
-## 2. Persistent Conversation History
-
-After basic conversation memory is implemented, conversations will be stored persistently.
-
-Planned capabilities include:
-
-* Save conversations
-* Reopen previous conversations
-* Continue previous sessions
-* Maintain multiple chat sessions
-* Store message history locally
-
-A lightweight database such as **SQLite** may initially be used for this system.
-
----
-
-## 3. Automatic Chat Titles
+## 1. Automatic Chat Titles
 
 ChatOmni will automatically generate short titles based on the beginning of a conversation.
 
@@ -481,7 +488,7 @@ These titles will later be used in the graphical chat interface.
 
 ---
 
-## 4. Image and Screenshot Understanding
+## 2. Image and Screenshot Understanding
 
 ChatOmni will gain multimodal input support.
 
@@ -508,7 +515,7 @@ This feature focuses on **image understanding**, not image generation.
 
 ---
 
-## 5. Improved Citation System
+## 3. Improved Citation System
 
 The citation architecture will be expanded so different tools can clearly expose their information sources.
 
@@ -529,7 +536,7 @@ The goal is to make externally retrieved information easier to verify.
 
 ---
 
-## 6. Python Coding and Debugging
+## 4. Python Coding and Debugging
 
 ChatOmni will include stronger programming-oriented capabilities.
 
@@ -547,7 +554,7 @@ Secure Python execution may later be introduced as a separate sandboxed tool.
 
 ---
 
-## 7. Graphical Chat Interface
+## 5. Graphical Chat Interface
 
 The current terminal application will eventually be replaced or complemented by a modern chat interface.
 
@@ -581,7 +588,7 @@ The interface is planned to support:
 
 ---
 
-## 8. Production Deployment
+## 6. Production Deployment
 
 After the main application features are complete, the project will move toward production deployment.
 
@@ -652,11 +659,11 @@ Currently implemented:
 * [x] CrossEncoder reranking
 * [x] Multi-tool agent behavior
 * [x] True response streaming
+* [x] Conversation memory
+* [x] Persistent conversation history
 
 Planned:
 
-* [ ] Conversation memory
-* [ ] Persistent conversation history
 * [ ] Multiple chat sessions
 * [ ] Automatic chat titles
 * [ ] Image and screenshot understanding
