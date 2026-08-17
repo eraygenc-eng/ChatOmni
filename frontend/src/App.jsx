@@ -60,7 +60,8 @@ function replaceToolMarker(children, tools) {
       typeof child === 'string' &&
       child.includes(TOOL_MARKER)
     ) {
-      const parts = child.split(TOOL_MARKER)
+      const parts =
+        child.split(TOOL_MARKER)
 
       return (
         <span key={`tool-marker-${index}`}>
@@ -68,7 +69,9 @@ function replaceToolMarker(children, tools) {
 
           <ToolIcons tools={tools} />
 
-          {parts.slice(1).join(TOOL_MARKER)}
+          {parts
+            .slice(1)
+            .join(TOOL_MARKER)}
         </span>
       )
     }
@@ -95,11 +98,12 @@ function MarkdownAnswer({
       text.trimEnd()
 
     /*
-      Normal bir cevap paragrafla bitiyorsa
+      Normal cevap paragrafla bitiyorsa
       tool marker aynı satırın sonuna eklenir.
 
-      Cevap code block ile bitiyorsa Markdown'ı
-      bozmamak için marker yeni paragrafa alınır.
+      Cevap code block ile bitiyorsa
+      Markdown'ı bozmamak için marker
+      yeni paragrafa alınır.
     */
     if (
       trimmedText.endsWith('```')
@@ -546,31 +550,30 @@ function App() {
     }
 
 
-    if (
-      selectedFile &&
-      selectedFile.category === 'image'
-    ) {
-      alert(
-        'Image upload is not connected to the backend yet.'
-      )
-
-      return
-    }
-
-
     const attachment =
       selectedFile
 
 
+    /*
+      Kullanıcı yalnızca dosya gönderirse
+      varsayılan bir soru oluştur.
+    */
     const messageText =
       typedMessage ||
       (
         attachment?.category === 'pdf'
           ? 'Bu PDF’i kısaca özetle.'
-          : ''
+          : attachment?.category === 'image'
+            ? 'Bu görseli incele ve önemli noktaları açıkla.'
+            : ''
       )
 
 
+    /*
+      PDF zaten backend'de aktif RAG belgesi
+      haline getirildiği için modele bunun
+      yeni yüklenen PDF olduğunu belirt.
+    */
     const backendMessage =
       attachment?.category === 'pdf'
         ? (
@@ -598,8 +601,12 @@ function App() {
 
       file: attachment
         ? {
-            name: attachment.name,
-            type: attachment.type,
+            name:
+              attachment.name,
+
+            type:
+              attachment.type,
+
             category:
               attachment.category,
           }
@@ -649,6 +656,8 @@ function App() {
 
 
     try {
+      let imageId = null
+
 
       // ========================================
       // UPLOAD PDF FIRST
@@ -696,7 +705,7 @@ function App() {
                 `PDF upload failed: ${errorData.detail}`
             }
           } catch {
-            // Keep the default error message.
+            // Keep default error message.
           }
 
 
@@ -708,8 +717,92 @@ function App() {
 
 
       // ========================================
+      // UPLOAD IMAGE FIRST
+      // ========================================
+
+      if (
+        attachment?.category === 'image'
+      ) {
+        const formData =
+          new FormData()
+
+
+        formData.append(
+          'file',
+          attachment.file
+        )
+
+
+        const uploadResponse =
+          await fetch(
+            'http://127.0.0.1:8000/upload-image',
+            {
+              method: 'POST',
+
+              body: formData,
+
+              signal:
+                controller.signal,
+            }
+          )
+
+
+        if (!uploadResponse.ok) {
+          let errorMessage =
+            `Image upload failed: ${uploadResponse.status}`
+
+
+          try {
+            const errorData =
+              await uploadResponse.json()
+
+
+            if (errorData?.detail) {
+              errorMessage =
+                `Image upload failed: ${errorData.detail}`
+            }
+          } catch {
+            // Keep default error message.
+          }
+
+
+          throw new Error(
+            errorMessage
+          )
+        }
+
+
+        const uploadData =
+          await uploadResponse.json()
+
+
+        imageId =
+          uploadData.image_id
+
+
+        if (!imageId) {
+          throw new Error(
+            'Image upload failed: backend did not return an image ID.'
+          )
+        }
+      }
+
+
+      // ========================================
       // START CHAT STREAM
       // ========================================
+
+      const requestBody = {
+        message:
+          backendMessage,
+      }
+
+
+      if (imageId) {
+        requestBody.image_id =
+          imageId
+      }
+
 
       const response =
         await fetch(
@@ -722,9 +815,9 @@ function App() {
                 'application/json',
             },
 
-            body: JSON.stringify({
-              message: backendMessage,
-            }),
+            body: JSON.stringify(
+              requestBody
+            ),
 
             signal:
               controller.signal,
@@ -733,8 +826,26 @@ function App() {
 
 
       if (!response.ok) {
-        throw new Error(
+        let errorMessage =
           `HTTP error: ${response.status}`
+
+
+        try {
+          const errorData =
+            await response.json()
+
+
+          if (errorData?.detail) {
+            errorMessage =
+              errorData.detail
+          }
+        } catch {
+          // Keep default error message.
+        }
+
+
+        throw new Error(
+          errorMessage
         )
       }
 
@@ -928,6 +1039,17 @@ function App() {
         )
 
 
+        const isUploadError =
+          error.message
+            ?.startsWith(
+              'PDF upload failed:'
+            ) ||
+          error.message
+            ?.startsWith(
+              'Image upload failed:'
+            )
+
+
         setMessages(
           (currentMessages) =>
             currentMessages.map(
@@ -946,10 +1068,7 @@ function App() {
                       text:
                         message.text ||
                         (
-                          error.message
-                            ?.startsWith(
-                              'PDF upload failed:'
-                            )
+                          isUploadError
                             ? error.message
                             : 'ChatOmni backend could not be reached.'
                         ),
@@ -1030,6 +1149,10 @@ function App() {
   }
 
 
+  // ========================================
+  // PDF SELECT
+  // ========================================
+
   function handlePDFChange(event) {
     const file =
       event.target.files[0]
@@ -1052,27 +1175,183 @@ function App() {
   }
 
 
+  // ========================================
+  // IMAGE SELECT
+  // ========================================
+
   function handleImageChange(event) {
     const file =
       event.target.files[0]
 
 
-    if (file) {
-      setSelectedFile({
-        file,
-
-        name: file.name,
-
-        type: file.type,
-
-        category: 'image',
-      })
+    if (!file) {
+      event.target.value = ''
+      return
     }
+
+
+    const allowedTypes = [
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+    ]
+
+
+    if (
+      !allowedTypes.includes(
+        file.type
+      )
+    ) {
+      alert(
+        'Supported image formats are PNG, JPG, JPEG, and WEBP.'
+      )
+
+      event.target.value = ''
+
+      return
+    }
+
+
+    setSelectedFile({
+      file,
+
+      name: file.name,
+
+      type: file.type,
+
+      category: 'image',
+    })
 
 
     event.target.value = ''
   }
 
+
+  // ========================================
+  // PASTE SCREENSHOT / IMAGE
+  // ========================================
+
+  function handlePaste(event) {
+    const clipboardItems =
+      event.clipboardData?.items
+
+
+    if (!clipboardItems) {
+      return
+    }
+
+
+    const imageItem =
+      Array
+        .from(clipboardItems)
+        .find(
+          (item) =>
+            item.type
+              .startsWith('image/')
+        )
+
+
+    /*
+      Clipboard'da görsel yoksa hiçbir
+      şey yapmıyoruz. Böylece normal
+      Ctrl+V text paste çalışmaya devam eder.
+    */
+    if (!imageItem) {
+      return
+    }
+
+
+    const imageBlob =
+      imageItem.getAsFile()
+
+
+    if (!imageBlob) {
+      return
+    }
+
+
+    const allowedTypes = [
+      'image/png',
+      'image/jpeg',
+      'image/webp',
+    ]
+
+
+    if (
+      !allowedTypes.includes(
+        imageBlob.type
+      )
+    ) {
+      alert(
+        'Pasted image format is not supported. Use PNG, JPG, JPEG, or WEBP.'
+      )
+
+      return
+    }
+
+
+    /*
+      Görsel bulunduğunda browser'ın
+      textarea'ya farklı clipboard içeriği
+      yapıştırmasını engelle.
+    */
+    event.preventDefault()
+
+
+    let extension = 'png'
+
+
+    if (
+      imageBlob.type ===
+      'image/jpeg'
+    ) {
+      extension = 'jpg'
+    }
+
+
+    if (
+      imageBlob.type ===
+      'image/webp'
+    ) {
+      extension = 'webp'
+    }
+
+
+    const screenshotFile =
+      new File(
+        [imageBlob],
+
+        `screenshot-${Date.now()}.${extension}`,
+
+        {
+          type:
+            imageBlob.type,
+        }
+      )
+
+
+    setSelectedFile({
+      file:
+        screenshotFile,
+
+      name:
+        screenshotFile.name,
+
+      type:
+        screenshotFile.type,
+
+      category:
+        'image',
+    })
+
+
+    setAttachMenuOpen(false)
+  }
+
+
+  // ========================================
+  // REMOVE ATTACHMENT
+  // ========================================
 
   function removeSelectedFile() {
     setSelectedFile(null)
@@ -1256,7 +1535,7 @@ function App() {
 
             type="file"
 
-            accept="image/*"
+            accept="image/png,image/jpeg,image/webp"
 
             onChange={
               handleImageChange
@@ -1283,6 +1562,10 @@ function App() {
 
             onKeyDown={
               handleKeyDown
+            }
+
+            onPaste={
+              handlePaste
             }
           />
 

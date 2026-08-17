@@ -1,4 +1,5 @@
 import json
+import base64
 import uuid
 from pathlib import Path
 from fastapi import FastAPI, File, UploadFile, HTTPException
@@ -24,6 +25,27 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(
     parents=True,
     exist_ok=True
+)
+
+IMAGE_UPLOAD_DIR = (
+    UPLOAD_DIR / "images"
+)
+
+IMAGE_UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+ALLOWED_IMAGE_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+}
+
+
+MAX_IMAGE_SIZE = (
+    20 * 1024 * 1024
 )
 
 
@@ -56,6 +78,97 @@ context = Context(
 
 class ChatRequest(BaseModel):
     message: str
+    image_id: str | None = None
+
+def build_user_message(
+    request: ChatRequest
+):
+
+    if not request.image_id:
+
+        return {
+            "role": "user",
+            "content": request.message,
+        }
+
+
+    image_id = Path(
+        request.image_id
+    ).name
+
+
+    if (
+        image_id !=
+        request.image_id
+    ):
+        raise ValueError(
+            "Invalid image ID."
+        )
+
+
+    image_path = (
+        IMAGE_UPLOAD_DIR /
+        image_id
+    )
+
+
+    if not image_path.exists():
+        raise ValueError(
+            "Uploaded image was not found."
+        )
+
+
+    suffix = (
+        image_path
+        .suffix
+        .lower()
+    )
+
+
+    mime_type = (
+        ALLOWED_IMAGE_TYPES
+        .get(suffix)
+    )
+
+
+    if not mime_type:
+        raise ValueError(
+            "Unsupported image format."
+        )
+
+
+    image_bytes = (
+        image_path.read_bytes()
+    )
+
+
+    image_base64 = (
+        base64.b64encode(
+            image_bytes
+        )
+        .decode("utf-8")
+    )
+
+
+    return {
+        "role": "user",
+
+        "content": [
+            {
+                "type": "text",
+                "text":
+                    request.message,
+            },
+
+            {
+                "type": "image",
+                "base64":
+                    image_base64,
+                "mime_type":
+                    mime_type,
+            },
+        ],
+    }
 
 
 def get_tool_display_name(
@@ -202,20 +315,121 @@ async def upload_pdf(
         "filename": original_name
     }
 
+@app.post("/upload-image")
+async def upload_image(
+    file: UploadFile = File(...)
+):
+
+    original_name = Path(
+        file.filename
+        or
+        "image.png"
+    ).name
+
+
+    suffix = (
+        Path(original_name)
+        .suffix
+        .lower()
+    )
+
+
+    mime_type = (
+        ALLOWED_IMAGE_TYPES
+        .get(suffix)
+    )
+
+
+    if not mime_type:
+        raise HTTPException(
+            status_code=400,
+
+            detail=(
+                "Unsupported image format. "
+                "Use PNG, JPG, JPEG, or WEBP."
+            )
+        )
+
+
+    file_bytes = await file.read()
+
+
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded image is empty."
+        )
+
+
+    if (
+        len(file_bytes) >
+        MAX_IMAGE_SIZE
+    ):
+        raise HTTPException(
+            status_code=400,
+
+            detail=(
+                "Image is too large. "
+                "Maximum size is 20 MB."
+            )
+        )
+
+
+    image_id = (
+        f"{uuid.uuid4().hex}"
+        f"{suffix}"
+    )
+
+
+    saved_path = (
+        IMAGE_UPLOAD_DIR /
+        image_id
+    )
+
+
+    try:
+
+        saved_path.write_bytes(
+            file_bytes
+        )
+
+    except Exception as error:
+
+        raise HTTPException(
+            status_code=500,
+            detail=str(error)
+        )
+
+
+    return {
+        "status": "ok",
+
+        "image_id":
+            image_id,
+
+        "filename":
+            original_name,
+
+        "mime_type":
+            mime_type,
+    }
+
 
 @app.post("/chat")
 def chat(
     request: ChatRequest
 ):
 
+    user_message = (
+        build_user_message(
+            request
+        )
+    )
+
     result = agent.invoke(
         {
             "messages": [
-                {
-                    "role": "user",
-                    "content":
-                        request.message,
-                }
+                user_message
             ]
         },
         config=config,
@@ -238,6 +452,12 @@ def chat_stream(
 
     def generate():
 
+        user_message = (
+            build_user_message(
+                request
+            )
+        )
+
         used_tools = set()
 
         final_response = None
@@ -245,13 +465,7 @@ def chat_stream(
 
         for chunk in agent.stream(
             {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content":
-                            request.message,
-                    }
-                ]
+                "messages": [user_message]
             },
             config=config,
             context=context,
