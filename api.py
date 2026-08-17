@@ -1,0 +1,383 @@
+import json
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from langchain.messages import (
+    AIMessage,
+    AIMessageChunk,
+)
+
+from src.agent import get_agent
+from src.citations import get_web_sources
+from src.context import Context
+
+
+app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+agent = get_agent()
+
+
+config = {
+    "configurable": {
+        "thread_id": "current_chat"
+    }
+}
+
+
+context = Context(
+    user_id="local_user"
+)
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+def get_tool_display_name(
+    tool_name: str
+) -> str:
+
+    if not tool_name:
+        return "Tool"
+
+    normalized = tool_name.lower()
+
+    if (
+        "memory" in normalized
+        or "memories" in normalized
+        or "saved" in normalized
+    ):
+        return "Memory"
+
+    if (
+        "calculator" in normalized
+        or "calculate" in normalized
+        or normalized == "math"
+    ):
+        return "Calculator"
+
+    if (
+        "currency" in normalized
+        or "exchange" in normalized
+    ):
+        return "Currency"
+
+    if (
+        "rag" in normalized
+        or "pdf" in normalized
+    ):
+        return "RAG"
+
+    if (
+        "web" in normalized
+        or "search" in normalized
+    ):
+        return "Web"
+
+    return (
+        tool_name
+        .replace("_", " ")
+        .replace("-", " ")
+        .title()
+    )
+
+
+def create_stream_event(
+    event_type: str,
+    **data,
+) -> str:
+
+    event = {
+        "type": event_type,
+        **data,
+    }
+
+    return (
+        json.dumps(
+            event,
+            ensure_ascii=False,
+        )
+        + "\n"
+    )
+
+
+@app.get("/health")
+def health_check():
+
+    return {
+        "status": "ok"
+    }
+
+
+@app.post("/chat")
+def chat(
+    request: ChatRequest
+):
+
+    result = agent.invoke(
+        {
+            "messages": [
+                {
+                    "role": "user",
+                    "content":
+                        request.message,
+                }
+            ]
+        },
+        config=config,
+        context=context,
+    )
+
+    response = (
+        result["messages"][-1]
+    )
+
+    return {
+        "response": response.text
+    }
+
+
+@app.post("/chat/stream")
+def chat_stream(
+    request: ChatRequest
+):
+
+    def generate():
+
+        used_tools = set()
+
+        final_response = None
+
+
+        for chunk in agent.stream(
+            {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content":
+                            request.message,
+                    }
+                ]
+            },
+            config=config,
+            context=context,
+            stream_mode=[
+                "messages",
+                "updates",
+            ],
+            version="v2",
+        ):
+
+            # ==================================
+            # STREAM TOKENS
+            # ==================================
+
+            if (
+                chunk["type"]
+                == "messages"
+            ):
+
+                token, metadata = (
+                    chunk["data"]
+                )
+
+                if (
+                    isinstance(
+                        token,
+                        AIMessageChunk,
+                    )
+                    and
+                    metadata.get(
+                        "langgraph_node"
+                    )
+                    == "model"
+                    and token.text
+                ):
+
+                    yield (
+                        create_stream_event(
+                            "token",
+                            content=
+                                token.text,
+                        )
+                    )
+
+
+            # ==================================
+            # AGENT UPDATES
+            # ==================================
+
+            elif (
+                chunk["type"]
+                == "updates"
+            ):
+
+                for (
+                    source,
+                    update,
+                ) in (
+                    chunk["data"].items()
+                ):
+
+                    if not isinstance(
+                        update,
+                        dict,
+                    ):
+                        continue
+
+
+                    messages = (
+                        update.get(
+                            "messages"
+                        )
+                    )
+
+                    if not messages:
+                        continue
+
+
+                    message = (
+                        messages[-1]
+                    )
+
+
+                    if not isinstance(
+                        message,
+                        AIMessage,
+                    ):
+                        continue
+
+
+                    # --------------------------
+                    # SAVE FINAL AI RESPONSE
+                    # --------------------------
+
+                    if not (
+                        message.tool_calls
+                    ):
+                        final_response = (
+                            message
+                        )
+
+
+                    # --------------------------
+                    # CUSTOM TOOL DETECTION
+                    # --------------------------
+
+                    for tool_call in (
+                        message.tool_calls
+                        or []
+                    ):
+
+                        tool_name = (
+                            tool_call.get(
+                                "name"
+                            )
+                        )
+
+                        if not tool_name:
+                            continue
+
+
+                        display_name = (
+                            get_tool_display_name(
+                                tool_name
+                            )
+                        )
+
+
+                        if (
+                            display_name
+                            in used_tools
+                        ):
+                            continue
+
+
+                        used_tools.add(
+                            display_name
+                        )
+
+
+                        yield (
+                            create_stream_event(
+                                "tool",
+                                name=
+                                    display_name,
+                            )
+                        )
+
+
+        # ==================================
+        # WEB SEARCH DETECTION
+        # ==================================
+        #
+        # OpenAI built-in web search is not
+        # always exposed through the normal
+        # AIMessage.tool_calls field.
+        #
+        # Instead, detect it from the web
+        # citations contained in the final
+        # AI response.
+        # ==================================
+
+        if final_response is not None:
+
+            web_sources = (
+                get_web_sources(
+                    final_response
+                )
+            )
+
+            if (
+                web_sources
+                and
+                "Web"
+                not in used_tools
+            ):
+
+                used_tools.add(
+                    "Web"
+                )
+
+                yield (
+                    create_stream_event(
+                        "tool",
+                        name="Web",
+                    )
+                )
+
+
+        # ==================================
+        # STREAM COMPLETE
+        # ==================================
+
+        yield (
+            create_stream_event(
+                "done"
+            )
+        )
+
+
+    return StreamingResponse(
+        generate(),
+        media_type=(
+            "application/x-ndjson; "
+            "charset=utf-8"
+        ),
+    )
