@@ -1,6 +1,7 @@
 import json
-
-from fastapi import FastAPI
+import uuid
+from pathlib import Path
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,9 +14,17 @@ from langchain.messages import (
 from src.agent import get_agent
 from src.citations import get_web_sources
 from src.context import Context
+from src.tools import set_rag_pdf
 
 
 app = FastAPI()
+
+UPLOAD_DIR = Path("uploads")
+
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
 app.add_middleware(
@@ -122,6 +131,75 @@ def health_check():
 
     return {
         "status": "ok"
+    }
+
+@app.post("/upload-pdf")
+async def upload_pdf(
+    file: UploadFile = File(...)
+):
+
+    original_name = Path(
+        file.filename or "document.pdf"
+    ).name
+
+
+    if (
+        Path(original_name)
+        .suffix
+        .lower()
+        != ".pdf"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Selected file is not a PDF."
+        )
+
+
+    file_bytes = await file.read()
+
+
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded PDF is empty."
+        )
+
+
+    saved_name = (
+        f"{uuid.uuid4().hex}_"
+        f"{original_name}"
+    )
+
+
+    saved_path = (
+        UPLOAD_DIR /
+        saved_name
+    )
+
+
+    try:
+        saved_path.write_bytes(
+            file_bytes
+        )
+
+        set_rag_pdf(
+            saved_path
+        )
+
+    except Exception as error:
+
+        if saved_path.exists():
+            saved_path.unlink()
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(error)
+        )
+
+
+    return {
+        "status": "ok",
+        "filename": original_name
     }
 
 

@@ -529,7 +529,7 @@ function App() {
   // ========================================
 
   async function sendMessage() {
-    const messageText =
+    const typedMessage =
       input.trim()
 
 
@@ -539,20 +539,46 @@ function App() {
 
 
     if (
-      messageText === '' &&
+      typedMessage === '' &&
       !selectedFile
     ) {
       return
     }
 
 
-    if (selectedFile) {
+    if (
+      selectedFile &&
+      selectedFile.category === 'image'
+    ) {
       alert(
-        'PDF/Image upload is not connected to the backend yet.'
+        'Image upload is not connected to the backend yet.'
       )
 
       return
     }
+
+
+    const attachment =
+      selectedFile
+
+
+    const messageText =
+      typedMessage ||
+      (
+        attachment?.category === 'pdf'
+          ? 'Bu PDF’i kısaca özetle.'
+          : ''
+      )
+
+
+    const backendMessage =
+      attachment?.category === 'pdf'
+        ? (
+            `[A PDF named "${attachment.name}" has just been uploaded ` +
+            `and loaded as the active PDF document. ` +
+            `The user's message refers to this PDF.] ${messageText}`
+          )
+        : messageText
 
 
     const userMessageId =
@@ -570,7 +596,14 @@ function App() {
 
       sender: 'user',
 
-      file: null,
+      file: attachment
+        ? {
+            name: attachment.name,
+            type: attachment.type,
+            category:
+              attachment.category,
+          }
+        : null,
     }
 
 
@@ -600,6 +633,8 @@ function App() {
 
     setInput('')
 
+    setSelectedFile(null)
+
     setAttachMenuOpen(false)
 
     setIsStreaming(true)
@@ -614,6 +649,68 @@ function App() {
 
 
     try {
+
+      // ========================================
+      // UPLOAD PDF FIRST
+      // ========================================
+
+      if (
+        attachment?.category === 'pdf'
+      ) {
+        const formData =
+          new FormData()
+
+
+        formData.append(
+          'file',
+          attachment.file
+        )
+
+
+        const uploadResponse =
+          await fetch(
+            'http://127.0.0.1:8000/upload-pdf',
+            {
+              method: 'POST',
+
+              body: formData,
+
+              signal:
+                controller.signal,
+            }
+          )
+
+
+        if (!uploadResponse.ok) {
+          let errorMessage =
+            `PDF upload failed: ${uploadResponse.status}`
+
+
+          try {
+            const errorData =
+              await uploadResponse.json()
+
+
+            if (errorData?.detail) {
+              errorMessage =
+                `PDF upload failed: ${errorData.detail}`
+            }
+          } catch {
+            // Keep the default error message.
+          }
+
+
+          throw new Error(
+            errorMessage
+          )
+        }
+      }
+
+
+      // ========================================
+      // START CHAT STREAM
+      // ========================================
+
       const response =
         await fetch(
           'http://127.0.0.1:8000/chat/stream',
@@ -626,7 +723,7 @@ function App() {
             },
 
             body: JSON.stringify({
-              message: messageText,
+              message: backendMessage,
             }),
 
             signal:
@@ -848,7 +945,14 @@ function App() {
 
                       text:
                         message.text ||
-                        'ChatOmni backend could not be reached.',
+                        (
+                          error.message
+                            ?.startsWith(
+                              'PDF upload failed:'
+                            )
+                            ? error.message
+                            : 'ChatOmni backend could not be reached.'
+                        ),
                     }
                   : message
             )
