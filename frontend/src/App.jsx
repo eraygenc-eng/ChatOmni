@@ -41,6 +41,15 @@ function getToolIcon(toolName) {
     case 'RAG':
       return '📄'
 
+    case 'Code':
+    case 'code_sandbox':
+    case 'Code Sandbox':
+      return '</>'
+
+    case 'create_code_file':
+    case 'Create Code File':
+      return '⇩'
+
     default:
       return '◆'
   }
@@ -62,7 +71,6 @@ function ToolIcons({
   return (
     <span
       className="tool-icon-group"
-
       aria-label={
         `Used tools: ${tools.join(', ')}`
       }
@@ -75,6 +83,10 @@ function ToolIcons({
             key={tool}
             className="tool-icon"
             title={tool}
+            style={{
+              fontSize: '1.15em',
+              lineHeight: 1,
+            }}
           >
             {getToolIcon(tool)}
           </span>
@@ -319,6 +331,592 @@ function normalizeMathText(text) {
 
 
 // ========================================
+// CODE BLOCK COPY
+// ========================================
+
+function getNodeText(node) {
+
+  if (
+    typeof node === 'string' ||
+    typeof node === 'number'
+  ) {
+
+    return String(node)
+  }
+
+
+  if (
+    Array.isArray(
+      node
+    )
+  ) {
+
+    return node
+      .map(
+        (item) =>
+          getNodeText(
+            item
+          )
+      )
+      .join('')
+  }
+
+
+  if (
+    node &&
+    typeof node === 'object' &&
+    node.props
+  ) {
+
+    return getNodeText(
+      node.props.children
+    )
+  }
+
+
+  return ''
+}
+
+
+async function copyTextToClipboard(
+  text
+) {
+
+  if (
+    navigator.clipboard &&
+    window.isSecureContext
+  ) {
+
+    await navigator.clipboard
+      .writeText(
+        text
+      )
+
+    return
+  }
+
+
+  const textarea =
+    document.createElement(
+      'textarea'
+    )
+
+
+  textarea.value =
+    text
+
+
+  textarea.style.position =
+    'fixed'
+
+  textarea.style.opacity =
+    '0'
+
+  textarea.style.pointerEvents =
+    'none'
+
+
+  document.body.appendChild(
+    textarea
+  )
+
+
+  textarea.focus()
+
+  textarea.select()
+
+
+  document.execCommand(
+    'copy'
+  )
+
+
+  document.body.removeChild(
+    textarea
+  )
+}
+
+
+function CodeBlock({
+  children,
+}) {
+
+  const [
+    copied,
+    setCopied,
+  ] = useState(false)
+
+
+  async function handleCopy() {
+
+    const codeText =
+      getNodeText(
+        children
+      )
+
+
+    try {
+
+      await copyTextToClipboard(
+        codeText
+      )
+
+
+      setCopied(
+        true
+      )
+
+
+      window.setTimeout(
+        () => {
+
+          setCopied(
+            false
+          )
+        },
+
+        1400
+      )
+
+    }
+
+    catch (error) {
+
+      console.error(
+        'Could not copy code:',
+        error
+      )
+    }
+  }
+
+
+  return (
+
+    <div className="code-block-wrapper">
+
+      <button
+
+        type="button"
+
+        className={
+          copied
+
+            ? 'code-copy-button copied'
+
+            : 'code-copy-button'
+        }
+
+        onClick={
+          handleCopy
+        }
+
+        title={
+          copied
+
+            ? 'Copied'
+
+            : 'Copy code'
+        }
+
+        aria-label={
+          copied
+
+            ? 'Code copied'
+
+            : 'Copy code'
+        }
+      >
+
+        {
+          copied
+
+            ? 'Copied'
+
+            : 'Copy'
+        }
+
+      </button>
+
+
+      <pre>
+        {children}
+      </pre>
+
+    </div>
+  )
+}
+
+
+// ========================================
+// GENERATED FILE
+// ========================================
+
+function formatFileSize(
+  size
+) {
+
+  const numericSize =
+    Number(size)
+
+
+  if (
+    !Number.isFinite(
+      numericSize
+    ) ||
+    numericSize <= 0
+  ) {
+
+    return ''
+  }
+
+
+  if (
+    numericSize <
+    1024
+  ) {
+
+    return `${numericSize} B`
+  }
+
+
+  return (
+    `${(
+      numericSize /
+      1024
+    ).toFixed(1)} KB`
+  )
+}
+
+
+function GeneratedFileCard({
+  file,
+}) {
+
+  const [
+    isSaving,
+    setIsSaving,
+  ] = useState(false)
+
+
+  if (
+    !file ||
+    !file.file_id
+  ) {
+
+    return null
+  }
+
+
+  const downloadUrl =
+
+    `http://127.0.0.1:8000/generated-files/${encodeURIComponent(
+      file.file_id
+    )}`
+
+
+  const sizeText =
+    formatFileSize(
+      file.size
+    )
+
+
+  async function handleDownload() {
+
+    if (isSaving) {
+      return
+    }
+
+
+    setIsSaving(
+      true
+    )
+
+
+    try {
+
+      // Chrome / Edge:
+      // Opens the Save As window.
+      if (
+        'showSaveFilePicker'
+        in window
+      ) {
+
+        let fileHandle
+
+
+        try {
+
+          fileHandle =
+            await window
+              .showSaveFilePicker({
+                suggestedName:
+                  file.filename ||
+                  'code-file.txt',
+              })
+
+        }
+
+        catch (error) {
+
+          // User cancelled the Save As window.
+          if (
+            error.name ===
+            'AbortError'
+          ) {
+
+            return
+          }
+
+
+          throw error
+        }
+
+
+        const response =
+          await fetch(
+            downloadUrl
+          )
+
+
+        if (!response.ok) {
+
+          throw new Error(
+            `File download failed: ${response.status}`
+          )
+        }
+
+
+        const blob =
+          await response.blob()
+
+
+        const writable =
+          await fileHandle
+            .createWritable()
+
+
+        await writable.write(
+          blob
+        )
+
+
+        await writable.close()
+
+
+        return
+      }
+
+
+      // Fallback for browsers that do not
+      // support showSaveFilePicker.
+      const response =
+        await fetch(
+          downloadUrl
+        )
+
+
+      if (!response.ok) {
+
+        throw new Error(
+          `File download failed: ${response.status}`
+        )
+      }
+
+
+      const blob =
+        await response.blob()
+
+
+      const objectUrl =
+        URL.createObjectURL(
+          blob
+        )
+
+
+      const link =
+        document.createElement(
+          'a'
+        )
+
+
+      link.href =
+        objectUrl
+
+
+      link.download =
+        file.filename ||
+        'code-file'
+
+
+      document.body.appendChild(
+        link
+      )
+
+
+      link.click()
+
+
+      document.body.removeChild(
+        link
+      )
+
+
+      URL.revokeObjectURL(
+        objectUrl
+      )
+
+    }
+
+    catch (error) {
+
+      console.error(
+        'Could not save generated file:',
+        error
+      )
+
+
+      alert(
+        'File could not be saved.'
+      )
+    }
+
+    finally {
+
+      setIsSaving(
+        false
+      )
+    }
+  }
+
+
+  return (
+
+    <div
+      className="selected-file"
+      style={{
+        marginTop:
+          '12px',
+      }}
+    >
+
+      <div className="selected-file-info">
+
+        <span className="file-icon">
+          CODE
+        </span>
+
+
+        <span className="file-name">
+
+          {
+            file.filename ||
+            'code-file'
+          }
+
+        </span>
+
+
+        {sizeText && (
+
+          <span
+            style={{
+              fontSize:
+                '11px',
+
+              opacity:
+                0.55,
+
+              whiteSpace:
+                'nowrap',
+            }}
+          >
+
+            {sizeText}
+
+          </span>
+
+        )}
+
+      </div>
+
+
+      <button
+
+        type="button"
+
+        onClick={
+          handleDownload
+        }
+
+        disabled={
+          isSaving
+        }
+
+        style={{
+          display:
+            'inline-flex',
+
+          alignItems:
+            'center',
+
+          justifyContent:
+            'center',
+
+          height:
+            '28px',
+
+          padding:
+            '0 10px',
+
+          marginLeft:
+            '6px',
+
+          border:
+            '1px solid var(--border-color)',
+
+          borderRadius:
+            '7px',
+
+          background:
+            'var(--surface-hover)',
+
+          color:
+            'var(--text-primary)',
+
+          fontSize:
+            '11px',
+
+          fontWeight:
+            600,
+
+          cursor:
+            isSaving
+              ? 'default'
+              : 'pointer',
+
+          opacity:
+            isSaving
+              ? 0.6
+              : 1,
+        }}
+      >
+
+        {
+          isSaving
+
+            ? 'Saving...'
+
+            : 'Download'
+        }
+
+      </button>
+
+    </div>
+  )
+}
+
+
+// ========================================
 // MARKDOWN ANSWER
 // ========================================
 
@@ -370,113 +968,156 @@ function MarkdownAnswer({
 
   const components = {
 
-    p: ({ children }) => (
+    pre: ({
+      children,
+    }) => (
+
+      <CodeBlock>
+        {children}
+      </CodeBlock>
+
+    ),
+
+
+    p: ({
+      children,
+    }) => (
 
       <p>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </p>
 
     ),
 
 
-    h1: ({ children }) => (
+    h1: ({
+      children,
+    }) => (
 
       <h1>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h1>
 
     ),
 
 
-    h2: ({ children }) => (
+    h2: ({
+      children,
+    }) => (
 
       <h2>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h2>
 
     ),
 
 
-    h3: ({ children }) => (
+    h3: ({
+      children,
+    }) => (
 
       <h3>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h3>
 
     ),
 
 
-    h4: ({ children }) => (
+    h4: ({
+      children,
+    }) => (
 
       <h4>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h4>
 
     ),
 
 
-    h5: ({ children }) => (
+    h5: ({
+      children,
+    }) => (
 
       <h5>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h5>
 
     ),
 
 
-    h6: ({ children }) => (
+    h6: ({
+      children,
+    }) => (
 
       <h6>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </h6>
 
     ),
 
 
-    li: ({ children }) => (
+    li: ({
+      children,
+    }) => (
 
       <li>
+
         {
           replaceToolMarker(
             children,
             tools
           )
         }
+
       </li>
 
     ),
@@ -592,6 +1233,10 @@ function App() {
 
 
   const imageInputRef =
+    useRef(null)
+
+
+  const codeInputRef =
     useRef(null)
 
 
@@ -886,8 +1531,13 @@ function App() {
             }
 
 
+            const currentTools =
+              message.tools ||
+              []
+
+
             if (
-              message.tools.includes(
+              currentTools.includes(
                 toolName
               )
             ) {
@@ -901,8 +1551,90 @@ function App() {
               ...message,
 
               tools: [
-                ...message.tools,
+                ...currentTools,
                 toolName,
+              ],
+            }
+          }
+        )
+    )
+  }
+
+
+  // ========================================
+  // ADD GENERATED FILE EVENT
+  // ========================================
+
+  function addGeneratedFileToMessage(
+    assistantMessageId,
+    fileData
+  ) {
+
+    if (
+      !fileData ||
+      !fileData.file_id
+    ) {
+
+      return
+    }
+
+
+    setMessages(
+      (currentMessages) =>
+
+        currentMessages.map(
+          (message) => {
+
+            if (
+              message.id !==
+              assistantMessageId
+            ) {
+
+              return message
+            }
+
+
+            const currentFiles =
+              message.files ||
+              []
+
+
+            const alreadyExists =
+              currentFiles.some(
+                (file) =>
+
+                  file.file_id ===
+                  fileData.file_id
+              )
+
+
+            if (
+              alreadyExists
+            ) {
+
+              return message
+            }
+
+
+            return {
+
+              ...message,
+
+              files: [
+                ...currentFiles,
+                {
+                  file_id:
+                    fileData.file_id,
+
+                  filename:
+                    fileData.filename,
+
+                  extension:
+                    fileData.extension,
+
+                  size:
+                    fileData.size,
+                },
               ],
             }
           }
@@ -1020,6 +1752,20 @@ function App() {
 
     if (
       event.type ===
+      'file'
+    ) {
+
+      addGeneratedFileToMessage(
+        assistantMessageId,
+        event
+      )
+
+      return
+    }
+
+
+    if (
+      event.type ===
       'token'
     ) {
 
@@ -1096,7 +1842,12 @@ function App() {
 
             ? 'Bu görseli incele ve önemli noktaları açıkla.'
 
-            : ''
+            : attachment?.category ===
+              'code'
+
+              ? 'Bu kod veya metin dosyasını incele ve ne yaptığını açıkla.'
+
+              : ''
       )
 
 
@@ -1167,6 +1918,9 @@ function App() {
       tools:
         [],
 
+      files:
+        [],
+
       isThinking:
         true,
 
@@ -1207,6 +1961,10 @@ function App() {
     try {
 
       let imageId =
+        null
+
+
+      let codeId =
         null
 
 
@@ -1380,6 +2138,99 @@ function App() {
 
 
       // ========================================
+      // CODE / TEXT UPLOAD
+      // ========================================
+
+      if (
+        attachment?.category ===
+        'code'
+      ) {
+
+        const formData =
+          new FormData()
+
+
+        formData.append(
+          'file',
+          attachment.file
+        )
+
+
+        const uploadResponse =
+          await fetch(
+
+            'http://127.0.0.1:8000/upload-code',
+
+            {
+
+              method:
+                'POST',
+
+              body:
+                formData,
+
+              signal:
+                controller.signal,
+            }
+          )
+
+
+        if (
+          !uploadResponse.ok
+        ) {
+
+          let errorMessage =
+            `Code upload failed: ${uploadResponse.status}`
+
+
+          try {
+
+            const errorData =
+              await uploadResponse
+                .json()
+
+
+            if (
+              errorData?.detail
+            ) {
+
+              errorMessage =
+                `Code upload failed: ${errorData.detail}`
+            }
+
+          }
+
+          catch {
+
+            // Keep default message.
+          }
+
+
+          throw new Error(
+            errorMessage
+          )
+        }
+
+
+        const uploadData =
+          await uploadResponse
+            .json()
+
+
+        codeId =
+          uploadData.code_id
+
+
+        if (!codeId) {
+
+          throw new Error(
+            'Code upload failed: backend did not return a code ID.'
+          )
+        }
+      }
+
+
+      // ========================================
       // CHAT REQUEST
       // ========================================
 
@@ -1397,6 +2248,13 @@ function App() {
 
         requestBody.image_id =
           imageId
+      }
+
+
+      if (codeId) {
+
+        requestBody.code_id =
+          codeId
       }
 
 
@@ -1685,6 +2543,13 @@ function App() {
               'Image upload failed:'
             )
 
+          ||
+
+          error.message
+            ?.startsWith(
+              'Code upload failed:'
+            )
+
 
         setMessages(
           (currentMessages) =>
@@ -1835,6 +2700,19 @@ function App() {
   }
 
 
+  function chooseCode() {
+
+    setAttachMenuOpen(
+      false
+    )
+
+
+    codeInputRef
+      .current
+      ?.click()
+  }
+
+
   // ========================================
   // PDF SELECT
   // ========================================
@@ -1931,6 +2809,112 @@ function App() {
 
       category:
         'image',
+    })
+
+
+    event.target.value =
+      ''
+  }
+
+
+  // ========================================
+  // CODE / TEXT SELECT
+  // ========================================
+
+  function handleCodeChange(
+    event
+  ) {
+
+    const file =
+      event.target.files[0]
+
+
+    if (!file) {
+
+      event.target.value =
+        ''
+
+      return
+    }
+
+
+    const allowedExtensions = [
+
+      '.py',
+      '.js',
+      '.mjs',
+      '.cjs',
+      '.java',
+      '.c',
+      '.h',
+      '.cpp',
+      '.cc',
+      '.cxx',
+      '.hpp',
+      '.cs',
+      '.go',
+      '.txt',
+    ]
+
+
+    const lowerName =
+      file.name.toLowerCase()
+
+
+    const isAllowed =
+      allowedExtensions.some(
+        (extension) =>
+
+          lowerName.endsWith(
+            extension
+          )
+      )
+
+
+    if (!isAllowed) {
+
+      alert(
+        'Supported code/text formats are PY, JS, JAVA, C, C++, C#, GO, and TXT.'
+      )
+
+
+      event.target.value =
+        ''
+
+      return
+    }
+
+
+    if (
+      file.size >
+      200 * 1024
+    ) {
+
+      alert(
+        'Code/text file is too large. Maximum size is 200 KB.'
+      )
+
+
+      event.target.value =
+        ''
+
+      return
+    }
+
+
+    setSelectedFile({
+
+      file,
+
+      name:
+        file.name,
+
+      type:
+        file.type ||
+        'text/plain',
+
+      category:
+        'code',
     })
 
 
@@ -2249,7 +3233,8 @@ function App() {
                   baseId + index,
 
                 text:
-                  message.text || '',
+                  message.text ||
+                  '',
 
                 sender:
                   'user',
@@ -2266,12 +3251,16 @@ function App() {
                 baseId + index,
 
               text:
-                message.text || '',
+                message.text ||
+                '',
 
               sender:
                 'assistant',
 
               tools:
+                [],
+
+              files:
                 [],
 
               isThinking:
@@ -2328,6 +3317,9 @@ function App() {
             'assistant',
 
           tools:
+            [],
+
+          files:
             [],
 
           isThinking:
@@ -2469,7 +3461,13 @@ function App() {
 
                     ? 'PDF'
 
-                    : 'IMG'
+                    : selectedFile
+                      .category ===
+                      'image'
+
+                      ? 'IMG'
+
+                      : 'CODE'
                 }
 
               </span>
@@ -2581,6 +3579,26 @@ function App() {
                 </button>
 
 
+                <button
+
+                  className="attach-option"
+
+                  onClick={
+                    chooseCode
+                  }
+                >
+
+                  <span className="attach-option-icon">
+                    CODE
+                  </span>
+
+                  <span>
+                    Upload Code / Text
+                  </span>
+
+                </button>
+
+
               </div>
 
             )}
@@ -2620,6 +3638,24 @@ function App() {
 
             onChange={
               handleImageChange
+            }
+          />
+
+
+          <input
+
+            ref={
+              codeInputRef
+            }
+
+            className="hidden-file-input"
+
+            type="file"
+
+            accept=".py,.js,.mjs,.cjs,.java,.c,.h,.cpp,.cc,.cxx,.hpp,.cs,.go,.txt"
+
+            onChange={
+              handleCodeChange
             }
           />
 
@@ -3145,7 +4181,14 @@ function App() {
 
                                           ? 'PDF'
 
-                                          : 'IMG'
+                                          : message
+                                            .file
+                                            .category ===
+                                            'image'
+
+                                            ? 'IMG'
+
+                                            : 'CODE'
                                       }
 
                                     </span>
@@ -3244,6 +4287,29 @@ function App() {
                                       </div>
 
                                     )
+                                }
+
+
+                                {
+                                  (
+                                    message.files ||
+                                    []
+                                  ).map(
+                                    (file) => (
+
+                                      <GeneratedFileCard
+
+                                        key={
+                                          file.file_id
+                                        }
+
+                                        file={
+                                          file
+                                        }
+                                      />
+
+                                    )
+                                  )
                                 }
 
 

@@ -1660,16 +1660,105 @@
 /* CODE BLOCK                               */
 /* ======================================== */
 
-.assistant-text pre {
+.code-block-wrapper {
+  position: relative;
+
   max-width: 100%;
 
   margin:
     14px
     0;
+}
+
+
+.code-copy-button {
+  position: absolute;
+
+  top: 9px;
+  right: 10px;
+
+  z-index: 2;
+
+  min-width: 54px;
+  height: 28px;
 
   padding:
-    15px
-    16px;
+    0
+    10px;
+
+  border:
+    1px solid var(--border-color);
+
+  border-radius: 8px;
+
+  background-color:
+    var(--message-bg);
+
+  color:
+    var(--text-secondary);
+
+  font-family: inherit;
+
+  font-size: 11px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  opacity: 0.82;
+
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+
+.code-copy-button:hover {
+  background-color:
+    var(--surface-hover);
+
+  border-color:
+    var(--accent);
+
+  color:
+    var(--text-primary);
+
+  opacity: 1;
+
+  transform:
+    translateY(-1px);
+}
+
+
+.code-copy-button:active {
+  transform:
+    scale(0.96);
+}
+
+
+.code-copy-button.copied {
+  color:
+    var(--accent);
+
+  border-color:
+    var(--accent);
+
+  background-color:
+    var(--accent-soft);
+}
+
+
+.assistant-text pre {
+  max-width: 100%;
+
+  margin: 0;
+
+  padding:
+    46px
+    16px
+    15px;
 
   border:
     1px solid var(--border-color);

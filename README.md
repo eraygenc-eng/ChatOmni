@@ -1,104 +1,127 @@
 # ChatOmni
 
-**ChatOmni** is a general-purpose AI assistant built with Python, LangChain, and OpenAI models.
+**ChatOmni** is a modular general-purpose AI assistant built with Python, LangChain, LangGraph, FastAPI, React, PostgreSQL, Docker, and OpenAI models.
 
-The goal of the project is to build a modular conversational assistant capable of combining general AI reasoning with external tools such as web search, mathematical calculations, currency conversion, and document-based Retrieval-Augmented Generation (RAG).
+The goal of the project is to build a conversational AI assistant that combines general-purpose reasoning with specialized tools such as:
 
-Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent** that can decide which capability is required for a user's request and use the appropriate tool automatically.
+- Real-time web search
+- Mathematical calculations
+- Currency conversion
+- Retrieval-Augmented Generation (RAG)
+- Persistent conversation and user memory
+- Image and screenshot understanding
+- Multi-language code execution
+- Code and text file analysis
+- Downloadable code generation
 
-The project is currently under active development.
+Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent**.
+
+The language model can decide when a request should be answered directly and when an external tool should be used.
+
+ChatOmni is currently under active development.
 
 ---
 
-## Current Features
+# Current Features
 
-### Conversational AI
+## Conversational AI
 
-ChatOmni can handle general-purpose conversations and questions using an OpenAI language model through LangChain.
+ChatOmni supports natural general-purpose conversation using an OpenAI language model through LangChain.
 
 The assistant can:
 
-* Answer general questions
-* Explain technical and non-technical topics
-* Follow conversational instructions
-* Respond naturally in both **English and Turkish**
-* Automatically adapt to the language used by the user
+- Answer general questions
+- Explain technical and non-technical topics
+- Follow conversational instructions
+- Maintain context across messages
+- Respond naturally in both **English and Turkish**
+- Automatically adapt to the language used by the user
+- Generate Markdown-formatted responses
+- Render mathematical expressions using LaTeX
 
 The current model configuration uses **GPT-5.6 Terra** through the OpenAI API.
 
 ---
 
-### LangChain Agent Architecture
+# Agent Architecture
 
 ChatOmni uses a LangChain agent instead of manually routing every request.
 
-The agent analyzes the user's message and decides whether it should:
+The agent determines whether it should:
 
-* Answer directly with the language model
-* Use the calculator
-* Search the web
-* Convert currencies
-* Search the currently loaded PDF document
-* Save or retrieve persistent user memory when appropriate
-
-This architecture allows new capabilities to be added as independent tools without redesigning the entire application.
+- Answer directly with the language model
+- Use the calculator
+- Search the web
+- Convert currencies
+- Query the currently loaded PDF
+- Execute code
+- Create downloadable code files
+- Save long-term memory
+- Retrieve previously stored memory
 
 Conceptually:
 
 ```text
-User
-  │
-  ▼
-ChatOmni Agent
-  │
-  ├── Direct LLM Response
-  │
-  ├── Calculator Tool
-  │
-  ├── Currency Tool
-  │
-  ├── Web Search Tool
-  │
-  ├── RAG PDF Tool
-  │
-  └── Memory Tools
-          │
-          ▼
-      PostgreSQL
+                        User
+                          │
+                          ▼
+                   ChatOmni Agent
+                          │
+        ┌─────────────────┼─────────────────┐
+        │                 │                 │
+        ▼                 ▼                 ▼
+ Direct Response       Tool Calls        Memory
+                          │
+        ┌─────────────────┼───────────────────────────────┐
+        │                 │               │               │
+        ▼                 ▼               ▼               ▼
+ Calculator          Web Search       Currency           RAG
+        │
+        ├────────────── Code Sandbox
+        │
+        └────────────── Code File Generator
+
+                          │
+                          ▼
+                     PostgreSQL
 ```
+
+This architecture allows new capabilities to be introduced as independent tools without redesigning the whole application.
 
 ---
 
-## Real-Time Web Search
+# Real-Time Web Search
 
-ChatOmni can access current information using a web search tool.
+ChatOmni can access current information using OpenAI web search.
 
 This allows the assistant to answer questions that cannot reliably be answered using only the language model's internal knowledge.
 
-Example questions:
+Examples:
 
 ```text
-What is the latest Bitcoin price?
-
 What happened in AI news today?
 
 Who currently holds a specific public position?
+
+What are the latest developments in a technology?
 ```
 
-When web search is used, ChatOmni can also display the sources used for the answer.
+When web search is used, ChatOmni can detect the web-search usage and expose source information to the frontend.
+
+The citation system will continue to be improved in future versions.
 
 ---
 
-## Mathematical Calculations
+# Mathematical Calculations
 
-ChatOmni includes a dedicated calculator tool for reliable arithmetic operations.
+ChatOmni contains a dedicated calculator tool for reliable arithmetic operations.
 
 Currently supported operations include:
 
-* Addition
-* Subtraction
-* Multiplication
-* Division
+- Addition
+- Subtraction
+- Multiplication
+- Division
 
 Example:
 
@@ -106,11 +129,11 @@ Example:
 What is 256 × 73?
 ```
 
-Instead of relying entirely on the language model to perform the calculation, the agent can call the calculator tool and use its result when generating the final response.
+Instead of relying entirely on the language model to perform arithmetic, the agent can call the calculator tool and use the returned result when constructing the final answer.
 
 ---
 
-## Currency Conversion
+# Currency Conversion
 
 ChatOmni includes a dedicated currency conversion tool using the **Frankfurter API**.
 
@@ -132,15 +155,15 @@ Source currency
 Target currency
 ```
 
-and calls the currency conversion tool when necessary.
+and calls the currency conversion tool when required.
 
-Frankfurter provides reference exchange rates from official financial data sources without requiring an API key.
+Frankfurter provides reference exchange rates from official financial data sources without requiring a separate API key.
 
-> Note: These rates are reference exchange rates and may differ slightly from live trading or financial-market prices.
+> Reference exchange rates may differ slightly from real-time trading or financial-market prices.
 
 ---
 
-## RAG PDF Assistant Integration
+# RAG PDF Assistant Integration
 
 One of the main features of ChatOmni is the integration of my previous **RAG PDF Assistant** project.
 
@@ -155,42 +178,58 @@ ChatOmni imports the RAG system through:
 ```python
 from rag_pdf_assistant import RAGPipeline
 ```
-> **Note:** The RAG functionality is provided by my separately developed `rag_pdf_assistant` project.  
-> ChatOmni imports this package through `RAGPipeline`, so the package must be installed in the active Python environment before PDF-related features can be used.
 
-The RAG pipeline is exposed to the LangChain agent as a dedicated:
+The RAG functionality is therefore maintained as an independently reusable project while being available to ChatOmni as one of its tools.
+
+The package must be installed in the active Python environment before RAG functionality can be used.
+
+The RAG system is exposed to the ChatOmni agent as:
 
 ```text
 rag_pdf
 ```
 
-tool.
-
-This means the agent can automatically recognize when a question refers to a loaded PDF and route the request to the RAG system.
+This allows the agent to automatically recognize PDF-related questions and call the RAG pipeline when required.
 
 ---
 
-## Dynamic PDF Selection
+# PDF Upload from the Web Interface
 
-PDF documents can be selected dynamically without restarting or modifying the application.
+PDF files can now be uploaded directly from the React interface.
 
-Example:
+The frontend sends the selected document to FastAPI:
 
 ```text
-/pdf "C:\Documents\example.pdf"
+React
+  │
+  ▼
+POST /upload-pdf
+  │
+  ▼
+FastAPI
+  │
+  ▼
+set_rag_pdf()
+  │
+  ▼
+RAGPipeline
 ```
 
-After the PDF is selected, questions can be asked naturally:
+Once the PDF is loaded, the user can ask questions naturally:
 
 ```text
+Summarize this PDF.
+
 According to the document, how will the revenue be distributed?
+
+What does this abbreviation mean in the uploaded document?
 ```
 
-When a new PDF is selected, the previous RAG pipeline is reset and a new pipeline is initialized when required.
+Loading a new PDF resets the previous RAG pipeline and initializes the new document when required.
 
 ---
 
-## RAG Retrieval Pipeline
+# RAG Retrieval Pipeline
 
 The integrated RAG system uses a multi-stage retrieval architecture.
 
@@ -217,307 +256,963 @@ Most Relevant Chunks
 LLM Answer Generation
 ```
 
-The retrieval system combines multiple search strategies instead of relying on a single vector search.
+The retrieval system combines several search strategies instead of relying only on semantic vector similarity.
 
 This improves retrieval quality for:
 
-* Direct questions
-* Complex questions
-* Abbreviations
-* Exact terminology
-* Questions where semantic similarity alone is insufficient
+- Direct questions
+- Complex questions
+- Abbreviations
+- Exact terminology
+- Questions where semantic similarity alone is insufficient
 
-The same retrieval pipeline used by the standalone RAG application is now used inside ChatOmni.
+The same retrieval flow used by the standalone RAG application is used inside ChatOmni.
 
 ---
 
-## True Response Streaming
+# Image and Screenshot Understanding
 
-ChatOmni supports **real token streaming**.
+ChatOmni supports multimodal image input.
 
-Responses are displayed while the language model is generating them instead of waiting for the entire answer to be completed first.
+Users can upload:
+
+- Screenshots
+- Error messages
+- Charts
+- Diagrams
+- Application interfaces
+- General images
+
+Supported formats currently include:
 
 ```text
-Without streaming:
+PNG
+JPG / JPEG
+WEBP
+```
 
+Screenshots can also be pasted directly into the message box using:
+
+```text
+Ctrl + V
+```
+
+The frontend uploads the image to FastAPI and sends the corresponding image identifier together with the conversation request.
+
+Conceptually:
+
+```text
+Image / Screenshot
+       │
+       ▼
+React Frontend
+       │
+       ▼
+POST /upload-image
+       │
+       ▼
+FastAPI
+       │
+       ▼
+Multimodal User Message
+       │
+       ▼
+ChatOmni Agent
+```
+
+Example:
+
+```text
+[Paste screenshot]
+
+Why am I getting this error?
+```
+
+ChatOmni can analyze the visual content and use it as part of the conversation.
+
+This feature focuses on **image understanding**, not image generation.
+
+---
+
+# True Response Streaming
+
+ChatOmni supports genuine model token streaming.
+
+Responses begin appearing while the language model is generating them instead of waiting for the complete answer.
+
+```text
 User
-  ↓
-Model generates complete response
-  ↓
-User waits
-  ↓
-Full response appears
-
-
-With ChatOmni streaming:
-
-User
-  ↓
+  │
+  ▼
+Agent
+  │
+  ▼
 Model starts generating
-  ↓
-First tokens appear immediately
-  ↓
-More tokens continue appearing
-  ↓
+  │
+  ▼
+First tokens appear
+  │
+  ▼
+More tokens stream
+  │
+  ▼
 Response completes
 ```
 
-This is genuine model streaming rather than a typing animation applied after the answer has already been generated.
+This is real model streaming rather than a frontend typing animation.
 
-Streaming also works after tool calls such as:
+Streaming also works after tool calls.
 
-* Web search
-* Currency conversion
-* RAG retrieval
+For example:
 
-The tool completes its required operation first, and the final language-model response begins streaming as soon as generation starts.
+```text
+User Request
+     │
+     ▼
+Tool Execution
+     │
+     ▼
+Tool Result
+     │
+     ▼
+Model Response
+     │
+     ▼
+Token Streaming
+```
+
+The frontend also provides a **Stop** button that allows an active response to be cancelled.
 
 ---
-## Conversation and Long-Term Memory
 
-ChatOmni now includes both **short-term conversation memory** and **persistent long-term user memory**.
+# Persistent Conversation History
 
-Short-term conversation context is handled with LangGraph's `InMemorySaver`, allowing the assistant to understand references to earlier messages within the active conversation.
+ChatOmni supports multiple persistent chat sessions.
 
-Long-term memory is backed by **PostgreSQL** through a persistent LangGraph store. This allows important user information to remain available even after ChatOmni is closed and started again.
+Each chat receives its own unique `chat_id`, which is used as the LangGraph:
+
+```text
+thread_id
+```
+
+Conversation state is stored using a PostgreSQL-backed LangGraph checkpointer.
+
+This allows ChatOmni to:
+
+- Maintain multiple conversations
+- Save conversation history
+- Reopen previous chats
+- Continue previous conversations after restarting the application
+- Keep different chats isolated from one another
+- Delete individual conversations
+
+Conversation history is separate from long-term user-profile memory.
+
+---
+
+# Automatic Chat Titles
+
+New chats automatically receive short titles based on the beginning of the conversation.
+
+Examples:
+
+```text
+Python Debugging Help
+
+RAG Architecture Discussion
+
+Currency Conversion
+
+Docker Sandbox Test
+```
+
+These titles are stored in PostgreSQL and displayed in the React sidebar.
+
+The frontend automatically refreshes the conversation list after new messages.
+
+---
+
+# Long-Term User Memory
+
+ChatOmni includes persistent long-term memory backed by PostgreSQL through a LangGraph store.
+
+This allows useful user information to remain available even when:
+
+```text
+ChatOmni closes
+        ↓
+Application restarts
+        ↓
+A new conversation begins
+```
 
 The assistant can:
 
-* Remember information when the user explicitly asks it to save or not forget something
-* Automatically save stable profile information that is likely to be useful in future conversations
-* Retrieve previously saved information when it becomes relevant
-* Keep temporary or one-time details out of long-term memory unless the user explicitly asks to save them
+- Save information when the user explicitly asks it to remember something
+- Retrieve previously saved information when relevant
+- Store stable profile information
+- Keep long-term profile memory separate from conversation history
 
-Examples of profile information that can be saved automatically include:
+Examples of information that may be stored include:
 
-* Full name or preferred name
-* University, degree, or academic program
-* Current job, workplace, or professional role
-* Main field of study or specialization
-* Long-term academic or career goals
-* Important ongoing projects
+- Preferred name
+- University or academic program
+- Professional role
+- Main field of study
+- Long-term academic goals
+- Career goals
+- Important ongoing projects
 
-This persistent profile memory is separate from the planned persistent conversation-history system, which will later manage multiple saved chat sessions.
+Conceptually:
+
+```text
+                 PostgreSQL
+                     │
+          ┌──────────┴──────────┐
+          │                     │
+          ▼                     ▼
+Conversation State       Long-Term Memory
+   LangGraph                  Store
+ Checkpointer
+```
+
 ---
 
-## Multi-Tool Agent Behavior
+# Multi-Chat React Interface
 
-Because ChatOmni is built around an agent architecture, it can use tools as part of a multi-step reasoning process.
+ChatOmni now includes a graphical chat interface built with **React + Vite**.
 
-For example:
+The interface includes:
+
+- Persistent conversation sidebar
+- New Chat button
+- Automatic chat titles
+- Reopening saved chats
+- Chat deletion
+- Dark and light themes
+- Collapsible sidebar
+- Streaming assistant responses
+- Thinking indicator
+- Stop-generation button
+- File attachments
+- Markdown rendering
+- LaTeX rendering
+- Code blocks
+- Code-copy buttons
+- Tool-use indicators
+
+Conceptually:
+
+```text
+┌─────────────────────────────────────────────────────┐
+│ ChatOmni                                      Theme │
+├─────────────────┬───────────────────────────────────┤
+│ New Chat        │                                   │
+│                 │          Conversation             │
+│ Chat 1          │                                   │
+│ Chat 2          │       User / Assistant            │
+│ Chat 3          │                                   │
+│                 │                                   │
+│                 │   PDF / Image / Code Upload       │
+└─────────────────┴───────────────────────────────────┘
+```
+
+The interface was designed to behave more like a modern conversational AI application rather than a terminal-only chatbot.
+
+---
+
+# Tool Usage Indicators
+
+When ChatOmni uses a tool, a small indicator appears next to the assistant response.
+
+Current tool indicators include:
+
+```text
+Memory
+Web
+Calculator
+Currency
+RAG
+Code Sandbox
+Create Code File
+```
+
+This allows the user to understand when the model answered directly and when an external tool was involved.
+
+---
+
+# Markdown and LaTeX Rendering
+
+Assistant responses are rendered using:
+
+- `react-markdown`
+- `remark-gfm`
+- `remark-math`
+- `rehype-katex`
+- KaTeX
+
+The interface supports:
+
+- Headings
+- Lists
+- Tables
+- Blockquotes
+- Inline code
+- Code blocks
+- Mathematical expressions
+- GitHub-Flavored Markdown
+
+---
+
+# Code Block Copy
+
+Generated code blocks include a dedicated **Copy** button.
+
+Example:
+
+```text
+┌─────────────────────────────────────────┐
+│                                  Copy   │
+│                                         │
+│ def hello():                            │
+│     print("Hello ChatOmni")             │
+│                                         │
+└─────────────────────────────────────────┘
+```
+
+When pressed, the entire code block is copied to the clipboard and the button briefly changes to:
+
+```text
+Copied
+```
+
+---
+
+# Code and Text File Upload
+
+ChatOmni can directly receive source-code and text files through the chat interface.
+
+Currently supported extensions include:
+
+```text
+.py
+.js
+.mjs
+.cjs
+.java
+.c
+.h
+.cpp
+.cc
+.cxx
+.hpp
+.cs
+.go
+.txt
+```
+
+Uploaded files are treated as text and passed to the assistant for analysis.
+
+Example:
+
+```text
+[Upload main.cpp]
+
+Explain what this code does.
+```
+
+Uploading a code file **does not automatically execute it**.
+
+The assistant only executes the file if the user explicitly requests execution.
+
+Example:
+
+```text
+[Upload test.py]
+
+Run this file and tell me the output.
+```
+
+In this case, the assistant can send the code to the Code Sandbox.
+
+---
+
+# Multi-Language Code Sandbox
+
+ChatOmni includes a Docker-based code execution tool.
+
+The sandbox currently supports:
+
+- Python
+- JavaScript
+- Java
+- C
+- C++
+- C#
+- Go
+
+The agent can use the sandbox when the user asks it to:
+
+- Run code
+- Test code
+- Verify program output
+- Debug code through execution
+
+Example:
+
+```text
+Run this Python code and tell me the output.
+
+print(sum(range(1, 101)))
+```
+
+ChatOmni can execute the code and return:
+
+```text
+5050
+```
+
+The same system can execute uploaded source-code files when explicitly requested.
+
+---
+
+# Sandbox Architecture
+
+Each supported language runs inside its own Docker image.
+
+```text
+ChatOmni Agent
+      │
+      ▼
+code_sandbox
+      │
+      ▼
+run_code_sandbox()
+      │
+      ▼
+Language Configuration
+      │
+      ▼
+Docker Container
+      │
+      ▼
+Compile if required
+      │
+      ▼
+Execute
+      │
+      ▼
+stdout / stderr / exit code
+```
+
+Current sandbox images include:
+
+```text
+chatomni-python-sandbox
+chatomni-javascript-sandbox
+chatomni-java-sandbox
+chatomni-gcc-sandbox
+chatomni-csharp-sandbox
+chatomni-go-sandbox
+```
+
+---
+
+# Sandbox Isolation
+
+Execution containers are created as short-lived isolated Docker containers.
+
+Current restrictions include:
+
+- No network access
+- Read-only container filesystem
+- Non-root execution
+- Memory limits
+- CPU limits
+- Process limits
+- Dropped Linux capabilities
+- `no-new-privileges`
+- Temporary writable `/tmp`
+- Execution timeout
+- Automatic container removal
+- Maximum input-code size
+- Maximum returned-output size
+
+Example execution configuration:
+
+```text
+--network none
+--read-only
+--memory ...
+--memory-swap ...
+--cpus ...
+--pids-limit 64
+--cap-drop ALL
+--security-opt no-new-privileges:true
+--user 10001:10001
+```
+
+Different languages receive different resource and temporary-directory configurations depending on whether compilation and executable files are required.
+
+> Docker-based sandboxing is useful isolation for the current local and portfolio-oriented version of ChatOmni, but Docker containers should not be treated as a perfect security boundary for a public arbitrary-code execution service. Additional production hardening is planned.
+
+---
+
+# Code File Generation
+
+ChatOmni can create real downloadable source-code files.
+
+When a user explicitly asks:
+
+```text
+Give this code to me as app.py.
+
+Create Program.cs.
+
+Provide this as main.cpp.
+```
+
+the agent can call:
+
+```text
+create_code_file
+```
+
+The tool creates a generated file and returns information including:
+
+```text
+file_id
+filename
+extension
+size
+```
+
+Supported generated file formats currently include:
+
+```text
+.py
+.js
+.mjs
+.cjs
+.java
+.c
+.h
+.cpp
+.cc
+.cxx
+.hpp
+.cs
+.go
+.txt
+```
+
+---
+
+# Generated File Download
+
+Generated source-code files are exposed through FastAPI using a dedicated download endpoint:
+
+```text
+GET /generated-files/{file_id}
+```
+
+The React interface receives a generated-file stream event and displays a download card.
+
+Example:
+
+```text
+CODE   EnemyFollow.cs   Download
+```
+
+When supported by the browser, pressing **Download** opens the system's **Save As** dialog so the user can choose where the generated file should be stored.
+
+This separates:
+
+```text
+Server-side generated copy
+          │
+          ▼
+uploads/generated/
+```
+
+from:
+
+```text
+User-selected download location
+```
+
+---
+
+# Combined Coding Workflow
+
+ChatOmni can combine multiple coding capabilities.
+
+Example request:
+
+```text
+Write a C++ program,
+run it to verify that it works,
+and give it to me as main.cpp.
+```
+
+Possible agent workflow:
+
+```text
+User Request
+     │
+     ▼
+Generate Code
+     │
+     ▼
+Code Sandbox
+     │
+     ▼
+Execution Successful
+     │
+     ▼
+Create Code File
+     │
+     ▼
+main.cpp
+     │
+     ▼
+Download
+```
+
+This allows code generation, execution, debugging, and file delivery to work as parts of the same agent workflow.
+
+---
+
+# Multi-Tool Agent Behavior
+
+Because ChatOmni uses an agent architecture, several tools can be used sequentially for a single request.
+
+Example:
 
 ```text
 Convert 100 USD and 200 EUR to TRY and calculate the total.
 ```
 
-A request like this may require multiple operations:
+Possible workflow:
 
 ```text
-USD → TRY conversion
-       +
-EUR → TRY conversion
-       +
-Mathematical calculation
-       ↓
+USD → TRY
+     +
+EUR → TRY
+     +
+Calculator
+     ↓
 Final Answer
 ```
 
-This architecture allows ChatOmni to become progressively more capable as additional tools are introduced.
+Coding requests can similarly combine:
+
+```text
+Code Sandbox
+     +
+Create Code File
+     ↓
+Final Answer + Download
+```
 
 ---
 
 # Current Technology Stack
 
-### AI & Agent Framework
+## AI & Agent Framework
 
-* OpenAI API
-* GPT-5.6 Terra
-* LangChain
-* LangGraph-based agent execution
+- OpenAI API
+- GPT-5.6 Terra
+- LangChain
+- LangGraph
+- Tool-calling agent architecture
 
-### Retrieval-Augmented Generation
+## Backend
 
-* Sentence Transformers
-* Vector embeddings
-* FAISS
-* Query rewriting
-* Exact-term retrieval
-* CrossEncoder reranking
-* Custom RAG pipeline
+- Python
+- FastAPI
+- Uvicorn
+- Pydantic
+- python-dotenv
+- requests
 
-### External Tools
+## Frontend
 
-* OpenAI Web Search
-* Frankfurter Currency API
-* Custom Calculator Tool
-* Custom RAG PDF Tool
-* Custom Memory Tools
+- React
+- Vite
+- JavaScript
+- React Markdown
+- remark-gfm
+- remark-math
+- rehype-katex
+- KaTeX
 
-### Memory & Persistence
+## Memory & Persistence
 
-* LangGraph `InMemorySaver`
-* LangGraph persistent store
-* PostgreSQL
-* psycopg
+- PostgreSQL
+- LangGraph PostgreSQL Checkpointer
+- LangGraph persistent Store
+- psycopg
 
-### Core
+## Retrieval-Augmented Generation
 
-* Python
-* python-dotenv
-* requests
+- Sentence Transformers
+- Vector embeddings
+- FAISS
+- Query rewriting
+- Exact-term retrieval
+- CrossEncoder reranking
+- Custom RAG pipeline
+
+## External Tools
+
+- OpenAI Web Search
+- Frankfurter Currency API
+- Custom Calculator Tool
+- Custom RAG PDF Tool
+- Custom Memory Tools
+- Custom Code Sandbox Tool
+- Custom Code File Generator
+
+## Code Execution
+
+- Docker
+- Python 3.12 sandbox
+- Node.js sandbox
+- Java / Eclipse Temurin
+- GCC / G++
+- .NET SDK
+- Go
 
 ---
 
 # Current Project Structure
 
-The project follows a modular structure where agent logic, tools, and supporting systems are separated.
+The project is divided into frontend, backend, persistence, agent, RAG integration, and sandbox components.
 
 ```text
 chatomni/
 │
+├── api.py
 ├── main.py
-│
-├── .env
-├── .gitignore
 ├── requirements.txt
+├── .env
+├── .env.example
+├── .gitignore
 │
-└── src/
-    ├── agent.py
-    ├── tools.py
-    ├── citations.py
-    ├── context.py
-    └── memory.py
+├── frontend/
+│   ├── package.json
+│   ├── package-lock.json
+│   └── src/
+│       ├── App.jsx
+│       ├── App.css
+│       └── index.css
+│
+├── sandbox/
+│   ├── python/
+│   │   └── Dockerfile
+│   │
+│   ├── javascript/
+│   │   └── Dockerfile
+│   │
+│   ├── java/
+│   │   └── Dockerfile
+│   │
+│   ├── gcc/
+│   │   └── Dockerfile
+│   │
+│   ├── csharp/
+│   │   └── Dockerfile
+│   │
+│   └── go/
+│       └── Dockerfile
+│
+├── src/
+│   ├── agent.py
+│   ├── tools.py
+│   ├── code_sandbox.py
+│   ├── checkpointer.py
+│   ├── conversations.py
+│   ├── titles.py
+│   ├── memory.py
+│   ├── context.py
+│   └── citations.py
+│
+└── uploads/
+    ├── images/
+    ├── code/
+    └── generated/
 ```
 
-The reusable RAG system is maintained as a separate Python package and integrated into ChatOmni through `RAGPipeline`.
+The separately developed `rag_pdf_assistant` package is installed into the same Python environment and imported through `RAGPipeline`.
 
-This separation keeps the RAG system reusable while allowing ChatOmni to use it as one of many available tools.
+---
+
+# Application Architecture
+
+A simplified view of the current system:
+
+```text
+                         Browser
+                            │
+                            ▼
+                    React + Vite UI
+                            │
+                            ▼
+                        FastAPI
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+              ▼                           ▼
+       ChatOmni Agent                 Upload APIs
+              │                           │
+   ┌──────────┼──────────┐        ┌───────┼─────────┐
+   │          │          │        │       │         │
+   ▼          ▼          ▼        ▼       ▼         ▼
+ Web       Currency     RAG      PDF     Image     Code
+   │          │          │
+   └──────────┼──────────┘
+              │
+              ▼
+        LangGraph Runtime
+              │
+       ┌──────┴──────┐
+       │             │
+       ▼             ▼
+ PostgreSQL      Code Sandbox
+                       │
+                       ▼
+                    Docker
+```
 
 ---
 
 # Example Usage
 
-Start ChatOmni:
-
-```bash
-python main.py
-```
-
-The terminal interface starts with:
+## General Conversation
 
 ```text
-ChatOmni is ready. Type 'exit' to stop.
+User:
+Explain how neural networks work.
+
+ChatOmni:
+...
 ```
 
-### General Conversation
+## Mathematical Question
 
 ```text
-You: Explain how neural networks work.
+User:
+What is 145 × 27?
 
-ChatOmni: ...
+ChatOmni:
+...
 ```
 
-### Mathematical Question
+## Currency Conversion
 
 ```text
-You: What is 145 × 27?
+User:
+How much is 500 EUR in TRY?
 
-ChatOmni: ...
+ChatOmni:
+...
 ```
 
-### Currency Conversion
+## Current Information
 
 ```text
-You: How much is 500 EUR in TRY?
+User:
+What happened in AI news today?
 
-ChatOmni: ...
+ChatOmni:
+...
 ```
 
-### Current Information
+## PDF Question
 
 ```text
-You: What happened in AI news today?
+[Upload document.pdf]
 
-ChatOmni: ...
+User:
+Summarize the main points of this document.
+
+ChatOmni:
+...
 ```
 
-### Load a PDF
+## Screenshot Analysis
 
 ```text
-You: /pdf "C:\Documents\example.pdf"
+[Paste screenshot]
 
-ChatOmni: PDF loaded: C:\Documents\example.pdf
+User:
+Why am I getting this error?
+
+ChatOmni:
+...
 ```
 
-Then ask:
+## Code File Analysis
 
 ```text
-You: According to the document, what is the proposed revenue distribution?
+[Upload main.cpp]
 
-ChatOmni: ...
+User:
+Explain what this program does.
+
+ChatOmni:
+...
+```
+
+## Code Execution
+
+```text
+User:
+Run this Python code and tell me the result.
+
+print(sum(range(1, 101)))
+```
+
+## Downloadable Code Generation
+
+```text
+User:
+Write a simple Python example and give it to me as hello.py.
+
+ChatOmni:
+hello.py has been created.
+
+CODE   hello.py   Download
 ```
 
 ---
 
 # Development Roadmap
 
-ChatOmni is being developed incrementally.
+The major conversational and tool-using capabilities of ChatOmni are now implemented.
 
-The next stages focus on turning the current tool-using agent into a complete conversational AI application.
-
+The remaining work primarily focuses on persistence improvements, source transparency, production hardening, deployment, and final polish.
 
 ---
 
-## 1. Automatic Chat Titles
+## 1. Generated File Persistence
 
-ChatOmni will automatically generate short titles based on the beginning of a conversation.
+Generated download cards currently belong to the active frontend response.
 
-Examples:
+A future update will persist generated-file metadata together with conversation history so that reopening an older conversation can restore:
 
 ```text
-RAG Architecture Discussion
-
-Python Debugging Help
-
-Denmark Salary Calculation
-
-Machine Learning Study
+CODE   example.py   Download
 ```
 
-These titles will later be used in the graphical chat interface.
+without requiring the file to be generated again.
 
 ---
 
-## 2. Image and Screenshot Understanding
+## 2. Improved Citation System
 
-ChatOmni will gain multimodal input support.
-
-Users will be able to upload:
-
-* Screenshots
-* Error messages
-* Charts
-* Diagrams
-* Application interfaces
-* General images
-
-Example:
-
-```text
-[Upload screenshot]
-
-Why am I getting this Python error?
-```
-
-ChatOmni will analyze the image and use its contents as part of the conversation.
-
-This feature focuses on **image understanding**, not image generation.
-
----
-
-## 3. Improved Citation System
-
-The citation architecture will be expanded so different tools can clearly expose their information sources.
+The citation architecture will be expanded so different tools can expose their sources consistently.
 
 Planned citation types include:
 
@@ -532,78 +1227,110 @@ Currency
 → Exchange-rate provider
 ```
 
-The goal is to make externally retrieved information easier to verify.
+The goal is to make externally retrieved information easier to verify directly from the interface.
 
 ---
 
-## 4. Python Coding and Debugging
+## 3. Code Sandbox Hardening
 
-ChatOmni will include stronger programming-oriented capabilities.
+The current Docker sandbox provides multiple isolation layers, but further work is planned before treating arbitrary-code execution as a production service.
 
-Planned features include:
+Planned improvements include:
 
-* Generate Python code
-* Explain existing code
-* Analyze tracebacks
-* Detect bugs
-* Suggest fixes
-* Refactor code
-* Explain programming concepts
+- Network-isolation verification tests
+- Filesystem-isolation tests
+- Timeout cleanup tests
+- Stronger output limits while processes are running
+- Better protection against excessive stdout/stderr
+- Sandbox-worker separation from the main API
+- Evaluation of stronger isolation technologies for public deployment
 
-Secure Python execution may later be introduced as a separate sandboxed tool.
-
----
-
-## 5. Graphical Chat Interface
-
-The current terminal application will eventually be replaced or complemented by a modern chat interface.
-
-Planned UI features include:
+Possible future approaches include:
 
 ```text
-┌──────────────────────────────────────────┐
-│ ChatOmni                                 │
-├───────────────┬──────────────────────────┤
-│ Conversations │ Chat                     │
-│               │                          │
-│ Chat 1        │ User messages            │
-│ Chat 2        │                          │
-│ Chat 3        │ ChatOmni responses       │
-│               │                          │
-│               │ PDF / Image Upload       │
-└───────────────┴──────────────────────────┘
+gVisor
+Kata Containers
+MicroVM-based isolation
+Remote sandbox workers
 ```
-
-The interface is planned to support:
-
-* Streaming responses
-* Conversation history
-* Multiple chats
-* Automatic chat titles
-* PDF uploads
-* Image uploads
-* Source display
-* Markdown rendering
-* Code blocks
 
 ---
 
-## 6. Production Deployment
+## 4. Production Hardening
 
-After the main application features are complete, the project will move toward production deployment.
+Before deployment, the application will receive additional production-oriented improvements.
 
 Planned work includes:
 
-* Docker containerization
-* Environment-based configuration
-* Secret management
-* Error handling
-* Logging
-* Dependency cleanup
-* Deployment configuration
-* AWS deployment
+- Structured logging
+- Stronger error handling
+- Environment-based configuration
+- Secret management
+- Dependency cleanup
+- Upload cleanup policies
+- Generated-file cleanup policies
+- Request limits
+- Basic rate limiting
+- Production configuration
 
-The final objective is to make ChatOmni accessible as a deployed web application rather than only as a local terminal program.
+---
+
+## 5. Docker Production Setup
+
+The Code Sandbox already uses Docker, but the complete ChatOmni application still requires production containerization.
+
+The production architecture may include:
+
+```text
+Frontend
+    +
+FastAPI
+    +
+PostgreSQL
+    +
+ChatOmni Agent
+    +
+Sandbox Worker
+```
+
+The final layout will keep arbitrary-code execution separated as much as possible from the main application service.
+
+---
+
+## 6. AWS Deployment
+
+After production hardening, ChatOmni will be deployed on AWS.
+
+Deployment work will include:
+
+- Backend deployment
+- Frontend deployment
+- PostgreSQL persistence
+- Docker runtime configuration
+- Sandbox execution strategy
+- Environment-variable configuration
+- Cost optimization
+- Start/stop deployment workflow
+
+The goal is to make ChatOmni accessible as a deployed web application while keeping infrastructure costs manageable.
+
+---
+
+## 7. Optional UI Improvements
+
+The current interface already supports the main required functionality.
+
+Possible future polish includes:
+
+- Manual chat renaming
+- Chat search
+- Custom delete-confirmation modal
+- Better loading states
+- Better error messages
+- Improved generated-file cards
+- Additional responsive UI improvements
+
+These are considered secondary improvements rather than core missing functionality.
 
 ---
 
@@ -622,20 +1349,32 @@ Currency Data
         +
 Document RAG
         +
-Conversation Memory
+Persistent Conversations
+        +
+Long-Term Memory
         +
 Image Understanding
         +
 Programming Assistance
+        +
+Code Execution
+        +
+File Generation
         ↓
       ChatOmni
 ```
 
-Instead of implementing every capability directly inside the language model workflow, specialized functionality is exposed through independent tools.
+Instead of implementing every capability directly inside the language-model workflow, specialized functionality is exposed through independent tools.
 
-This makes the system easier to extend, test, and maintain.
+This makes the system easier to:
 
-Future capabilities can be introduced by adding new tools to the agent architecture without rebuilding the entire assistant.
+- Extend
+- Test
+- Maintain
+- Replace components
+- Add future capabilities
+
+The architecture is intentionally modular so future tools can be added without rebuilding the whole assistant.
 
 ---
 
@@ -643,55 +1382,99 @@ Future capabilities can be introduced by adding new tools to the agent architect
 
 **Active Development**
 
-Currently implemented:
+## Implemented
 
-* [x] OpenAI LLM integration
-* [x] LangChain agent architecture
-* [x] Turkish and English interaction
-* [x] General conversational responses
-* [x] Calculator tool
-* [x] Real-time web search
-* [x] Web source extraction
-* [x] Currency conversion tool
-* [x] RAG PDF Assistant integration
-* [x] Dynamic PDF selection
-* [x] Multi-stage RAG retrieval
-* [x] CrossEncoder reranking
-* [x] Multi-tool agent behavior
-* [x] True response streaming
-* [x] Conversation memory
-* [x] Persistent conversation history
+- [x] OpenAI LLM integration
+- [x] LangChain agent architecture
+- [x] LangGraph integration
+- [x] Turkish and English interaction
+- [x] General conversational responses
+- [x] Calculator tool
+- [x] Real-time web search
+- [x] Web source extraction
+- [x] Currency conversion tool
+- [x] RAG PDF Assistant integration
+- [x] Dynamic PDF loading
+- [x] PDF upload from React
+- [x] Multi-stage RAG retrieval
+- [x] Query rewriting
+- [x] Exact-term retrieval
+- [x] CrossEncoder reranking
+- [x] Multi-tool agent behavior
+- [x] True response streaming
+- [x] Stop-generation control
+- [x] Persistent conversation state
+- [x] PostgreSQL-backed LangGraph checkpointer
+- [x] Persistent long-term memory
+- [x] Multiple chat sessions
+- [x] Reopening previous conversations
+- [x] Chat deletion
+- [x] Automatic chat titles
+- [x] React graphical chat interface
+- [x] Dark and light themes
+- [x] Collapsible sidebar
+- [x] Markdown rendering
+- [x] LaTeX rendering
+- [x] Tool-use indicators
+- [x] Image upload
+- [x] Screenshot paste support
+- [x] Image and screenshot understanding
+- [x] Code block rendering
+- [x] Code block copy button
+- [x] Code and text file uploads
+- [x] Python code execution
+- [x] JavaScript code execution
+- [x] Java code execution
+- [x] C code execution
+- [x] C++ code execution
+- [x] C# code execution
+- [x] Go code execution
+- [x] Docker sandbox isolation
+- [x] Execution timeouts
+- [x] Code file generation
+- [x] Generated source-code downloads
+- [x] Save-As file selection in supported browsers
 
-Planned:
+## Planned
 
-* [ ] Multiple chat sessions
-* [ ] Automatic chat titles
-* [ ] Image and screenshot understanding
-* [ ] Extended citation system
-* [ ] Advanced Python coding and debugging support
-* [ ] Secure Python execution
-* [ ] Graphical chat interface
-* [ ] Docker production setup
-* [ ] AWS deployment
+- [ ] Generated-file cards restored when old chats are reopened
+- [ ] Improved citation UI
+- [ ] Additional Code Sandbox hardening
+- [ ] Production logging and error handling
+- [ ] Upload/generated-file cleanup policies
+- [ ] Rate limiting
+- [ ] Full Docker production setup
+- [ ] AWS deployment
+- [ ] Final UI polish
+- [ ] Final README screenshots and documentation cleanup
 
 ---
 
-## Related Project
+# Related Project
 
-ChatOmni integrates the independently developed **RAG PDF Assistant**, which provides document retrieval, semantic search, exact-term retrieval, query rewriting, CrossEncoder reranking, and LLM-based answer generation.
+ChatOmni integrates the independently developed **RAG PDF Assistant**.
+
+The RAG project provides:
+
+- PDF processing
+- Semantic retrieval
+- Exact-term retrieval
+- Query rewriting
+- CrossEncoder reranking
+- LLM-based answer generation
 
 The integration demonstrates how a standalone AI application can be refactored into a reusable Python package and incorporated into a larger agent-based system.
 
 ---
 
-## License
+# License
 
-This project is intended for educational, experimental, and portfolio purposes.
+This project is currently intended for educational, experimental, and portfolio purposes.
 
 A formal open-source license may be added as the project approaches a stable release.
 
 ---
 
-## Author
+# Author
 
 **Eray Genç**

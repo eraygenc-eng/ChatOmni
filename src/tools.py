@@ -4,7 +4,43 @@ from rag_pdf_assistant import RAGPipeline
 from typing import Literal
 import requests
 import uuid
+import json
 from src.context import Context
+from src.code_sandbox import run_code_sandbox
+
+
+GENERATED_CODE_DIR = (
+    Path("uploads") /
+    "generated"
+)
+
+GENERATED_CODE_DIR.mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+ALLOWED_GENERATED_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".mjs",
+    ".cjs",
+    ".java",
+    ".c",
+    ".h",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".txt",
+}
+
+
+MAX_GENERATED_FILE_SIZE = (
+    200 * 1024
+)
 
 
 @tool
@@ -38,6 +74,213 @@ def calculator(
     
     else:
         raise ValueError("Unknown Operation")
+
+
+@tool
+def code_sandbox(
+    language: Literal[
+        "python",
+        "javascript",
+        "java",
+        "c",
+        "cpp",
+        "csharp",
+        "go",
+    ],
+    code: str
+) -> str:
+    """
+    Execute code inside an isolated Docker sandbox.
+
+    Supported languages:
+    Python, JavaScript, Java, C, C++, C#, and Go.
+
+    Use this tool when the user explicitly asks to run, execute,
+    test, verify, or debug code, or when executing code is useful
+    for checking a programming result.
+
+    Do not claim that code was executed unless this tool was used.
+
+    Args:
+        language: Programming language of the code.
+        code: Source code to execute.
+    """
+
+    return run_code_sandbox(
+        language,
+        code
+    )
+
+
+@tool
+def create_code_file(
+    filename: str,
+    content: str
+) -> str:
+    """
+    Create a downloadable code or text file.
+
+    Use this tool only when the user explicitly asks for code
+    or text to be provided as an actual file.
+
+    Examples:
+    - "Give this to me as app.py"
+    - "Create Program.cs"
+    - "Provide the code as main.cpp"
+    - "Save this as a .txt file"
+
+    Args:
+        filename: Name of the file including its extension.
+        content: Complete text content of the file.
+    """
+
+    if not isinstance(
+        filename,
+        str
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Filename must be a string."
+        })
+
+
+    filename = (
+        filename.strip()
+    )
+
+
+    if not filename:
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Filename cannot be empty."
+        })
+
+
+    if (
+        "/" in filename
+        or
+        "\\" in filename
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Filename cannot contain a path."
+        })
+
+
+    safe_filename = (
+        Path(filename).name
+    )
+
+
+    if (
+        safe_filename !=
+        filename
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Invalid filename."
+        })
+
+
+    suffix = (
+        Path(safe_filename)
+        .suffix
+        .lower()
+    )
+
+
+    if (
+        suffix not in
+        ALLOWED_GENERATED_EXTENSIONS
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Unsupported file extension."
+        })
+
+
+    if not isinstance(
+        content,
+        str
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "File content must be text."
+        })
+
+
+    file_bytes = (
+        content.encode(
+            "utf-8"
+        )
+    )
+
+
+    if (
+        len(file_bytes) >
+        MAX_GENERATED_FILE_SIZE
+    ):
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                "Generated file is too large."
+        })
+
+
+    file_id = (
+        f"{uuid.uuid4().hex}_"
+        f"{safe_filename}"
+    )
+
+
+    file_path = (
+        GENERATED_CODE_DIR /
+        file_id
+    )
+
+
+    try:
+
+        file_path.write_bytes(
+            file_bytes
+        )
+
+    except Exception as error:
+
+        return json.dumps({
+            "status": "error",
+            "message":
+                str(error)
+        })
+
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "file_id":
+                file_id,
+            "filename":
+                safe_filename,
+            "extension":
+                suffix,
+            "size":
+                len(file_bytes),
+        },
+        ensure_ascii=False,
+    )
 
 @tool
 def currency_converter(
