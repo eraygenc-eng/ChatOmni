@@ -1,14 +1,31 @@
-import { Children, useEffect, useRef, useState } from 'react'
+import {
+  Children,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
+
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+
+import 'katex/dist/katex.min.css'
 import './App.css'
 
 
-const TOOL_MARKER = '[[CHATOMNI_TOOL_ICONS]]'
+const TOOL_MARKER =
+  '[[CHATOMNI_TOOL_ICONS]]'
 
+
+// ========================================
+// TOOL ICONS
+// ========================================
 
 function getToolIcon(toolName) {
+
   switch (toolName) {
+
     case 'Memory':
       return '🧠'
 
@@ -30,87 +47,321 @@ function getToolIcon(toolName) {
 }
 
 
-function ToolIcons({ tools }) {
-  if (!tools || tools.length === 0) {
+function ToolIcons({
+  tools,
+}) {
+
+  if (
+    !tools ||
+    tools.length === 0
+  ) {
     return null
   }
+
 
   return (
     <span
       className="tool-icon-group"
-      aria-label={`Used tools: ${tools.join(', ')}`}
+
+      aria-label={
+        `Used tools: ${tools.join(', ')}`
+      }
     >
-      {tools.map((tool) => (
-        <span
-          key={tool}
-          className="tool-icon"
-          title={tool}
-        >
-          {getToolIcon(tool)}
-        </span>
-      ))}
+
+      {tools.map(
+        (tool) => (
+
+          <span
+            key={tool}
+            className="tool-icon"
+            title={tool}
+          >
+            {getToolIcon(tool)}
+          </span>
+
+        )
+      )}
+
     </span>
   )
 }
 
 
-function replaceToolMarker(children, tools) {
-  return Children.map(children, (child, index) => {
-    if (
-      typeof child === 'string' &&
-      child.includes(TOOL_MARKER)
-    ) {
-      const parts =
-        child.split(TOOL_MARKER)
+function replaceToolMarker(
+  children,
+  tools
+) {
 
-      return (
-        <span key={`tool-marker-${index}`}>
-          {parts[0]}
+  return Children.map(
+    children,
 
-          <ToolIcons tools={tools} />
+    (child, index) => {
 
-          {parts
-            .slice(1)
-            .join(TOOL_MARKER)}
-        </span>
-      )
+      if (
+        typeof child === 'string' &&
+        child.includes(
+          TOOL_MARKER
+        )
+      ) {
+
+        const parts =
+          child.split(
+            TOOL_MARKER
+          )
+
+
+        return (
+          <span
+            key={
+              `tool-marker-${index}`
+            }
+          >
+
+            {parts[0]}
+
+            <ToolIcons
+              tools={tools}
+            />
+
+            {
+              parts
+                .slice(1)
+                .join(
+                  TOOL_MARKER
+                )
+            }
+
+          </span>
+        )
+      }
+
+
+      return child
     }
-
-    return child
-  })
+  )
 }
 
+
+// ========================================
+// REMOVE LATEX \boxed{...}
+// ========================================
+
+function removeLatexBoxed(text) {
+
+  if (!text) {
+    return ''
+  }
+
+
+  const command =
+    '\\boxed{'
+
+
+  let result = ''
+
+  let index = 0
+
+
+  while (
+    index < text.length
+  ) {
+
+    const boxedIndex =
+      text.indexOf(
+        command,
+        index
+      )
+
+
+    if (
+      boxedIndex === -1
+    ) {
+
+      result +=
+        text.slice(
+          index
+        )
+
+      break
+    }
+
+
+    result +=
+      text.slice(
+        index,
+        boxedIndex
+      )
+
+
+    const contentStart =
+      boxedIndex +
+      command.length
+
+
+    let depth = 1
+
+    let position =
+      contentStart
+
+
+    while (
+      position <
+        text.length &&
+      depth > 0
+    ) {
+
+      const character =
+        text[position]
+
+
+      const previousCharacter =
+        position > 0
+
+          ? text[position - 1]
+
+          : ''
+
+
+      const escaped =
+        previousCharacter ===
+        '\\'
+
+
+      if (
+        character === '{' &&
+        !escaped
+      ) {
+
+        depth += 1
+      }
+
+      else if (
+        character === '}' &&
+        !escaped
+      ) {
+
+        depth -= 1
+      }
+
+
+      position += 1
+    }
+
+
+    if (
+      depth !== 0
+    ) {
+
+      result +=
+        text.slice(
+          boxedIndex
+        )
+
+      break
+    }
+
+
+    result +=
+      text.slice(
+        contentStart,
+        position - 1
+      )
+
+
+    index =
+      position
+  }
+
+
+  return result
+}
+
+
+// ========================================
+// NORMALIZE MATH
+// ========================================
+
+function normalizeMathText(text) {
+
+  if (!text) {
+    return ''
+  }
+
+
+  let normalizedText =
+    removeLatexBoxed(
+      text
+    )
+
+
+  normalizedText =
+    normalizedText.replace(
+
+      /\\\[([\s\S]*?)\\\]/g,
+
+      (_, content) =>
+        `\n$$\n${content.trim()}\n$$\n`
+    )
+
+
+  normalizedText =
+    normalizedText.replace(
+
+      /\\\(([\s\S]*?)\\\)/g,
+
+      (_, content) =>
+        `$${content.trim()}$`
+    )
+
+
+  return normalizedText
+}
+
+
+// ========================================
+// MARKDOWN ANSWER
+// ========================================
 
 function MarkdownAnswer({
   text,
   tools,
   showToolIcons,
 }) {
+
   const hasTools =
     showToolIcons &&
     tools &&
     tools.length > 0
 
-  let markdownText = text
+
+  let markdownText =
+    normalizeMathText(
+      text
+    )
+
 
   if (hasTools) {
+
     const trimmedText =
-      text.trimEnd()
+      markdownText.trimEnd()
 
-    /*
-      Normal cevap paragrafla bitiyorsa
-      tool marker aynı satırın sonuna eklenir.
 
-      Cevap code block ile bitiyorsa
-      Markdown'ı bozmamak için marker
-      yeni paragrafa alınır.
-    */
     if (
-      trimmedText.endsWith('```')
+      trimmedText.endsWith(
+        '```'
+      ) ||
+
+      trimmedText.endsWith(
+        '$$'
+      )
     ) {
+
       markdownText =
         `${trimmedText}\n\n${TOOL_MARKER}`
-    } else {
+    }
+
+    else {
+
       markdownText =
         `${trimmedText} ${TOOL_MARKER}`
     }
@@ -118,122 +369,213 @@ function MarkdownAnswer({
 
 
   const components = {
+
     p: ({ children }) => (
+
       <p>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </p>
+
     ),
+
 
     h1: ({ children }) => (
+
       <h1>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h1>
+
     ),
+
 
     h2: ({ children }) => (
+
       <h2>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h2>
+
     ),
+
 
     h3: ({ children }) => (
+
       <h3>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h3>
+
     ),
+
 
     h4: ({ children }) => (
+
       <h4>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h4>
+
     ),
+
 
     h5: ({ children }) => (
+
       <h5>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h5>
+
     ),
+
 
     h6: ({ children }) => (
+
       <h6>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </h6>
+
     ),
 
+
     li: ({ children }) => (
+
       <li>
-        {replaceToolMarker(
-          children,
-          tools
-        )}
+        {
+          replaceToolMarker(
+            children,
+            tools
+          )
+        }
       </li>
+
     ),
   }
 
 
   return (
+
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={components}
+
+      remarkPlugins={[
+        remarkGfm,
+        remarkMath,
+      ]}
+
+      rehypePlugins={[
+        rehypeKatex,
+      ]}
+
+      components={
+        components
+      }
     >
+
       {markdownText}
+
     </ReactMarkdown>
   )
 }
 
 
+// ========================================
+// APP
+// ========================================
+
 function App() {
-  const [input, setInput] =
-    useState('')
 
-  const [messages, setMessages] =
-    useState([])
+  // ========================================
+  // STATE
+  // ========================================
 
-  const [theme, setTheme] =
-    useState('dark')
+  const [
+    input,
+    setInput,
+  ] = useState('')
+
+
+  const [
+    messages,
+    setMessages,
+  ] = useState([])
+
+
+  const [
+    theme,
+    setTheme,
+  ] = useState(
+    'dark'
+  )
+
 
   const [
     sidebarOpen,
     setSidebarOpen,
   ] = useState(true)
 
+
   const [
     selectedFile,
     setSelectedFile,
   ] = useState(null)
+
 
   const [
     attachMenuOpen,
     setAttachMenuOpen,
   ] = useState(false)
 
+
   const [
     activeChat,
     setActiveChat,
+  ] = useState(null)
+
+
+  const [
+    chatId,
+    setChatId,
   ] = useState(
-    'ChatOmni Development'
+    () =>
+      crypto.randomUUID()
   )
+
+
+  const [
+    chats,
+    setChats,
+  ] = useState([])
+
 
   const [
     isStreaming,
@@ -241,23 +583,96 @@ function App() {
   ] = useState(false)
 
 
+  // ========================================
+  // REFS
+  // ========================================
+
   const pdfInputRef =
     useRef(null)
+
 
   const imageInputRef =
     useRef(null)
 
+
   const attachAreaRef =
     useRef(null)
+
 
   const messageInputRef =
     useRef(null)
 
+
   const messagesContainerRef =
     useRef(null)
 
+
   const abortControllerRef =
     useRef(null)
+
+
+  const autoScrollEnabledRef =
+    useRef(true)
+
+
+  // ========================================
+  // LOAD SAVED CHATS
+  // ========================================
+
+  async function loadChats() {
+
+    try {
+
+      const response =
+        await fetch(
+          'http://127.0.0.1:8000/chats'
+        )
+
+
+      if (!response.ok) {
+
+        throw new Error(
+          `Chat list error: ${response.status}`
+        )
+      }
+
+
+      const data =
+        await response.json()
+
+
+      setChats(
+
+        Array.isArray(
+          data.chats
+        )
+
+          ? data.chats
+
+          : []
+      )
+
+    }
+
+    catch (error) {
+
+      console.error(
+        'Could not load chats:',
+        error
+      )
+    }
+  }
+
+
+  // ========================================
+  // LOAD CHAT LIST ON START
+  // ========================================
+
+  useEffect(() => {
+
+    loadChats()
+
+  }, [])
 
 
   // ========================================
@@ -265,15 +680,24 @@ function App() {
   // ========================================
 
   useEffect(() => {
-    function handleClickOutside(event) {
+
+    function handleClickOutside(
+      event
+    ) {
+
       if (
         attachMenuOpen &&
         attachAreaRef.current &&
-        !attachAreaRef.current.contains(
-          event.target
-        )
+        !attachAreaRef
+          .current
+          .contains(
+            event.target
+          )
       ) {
-        setAttachMenuOpen(false)
+
+        setAttachMenuOpen(
+          false
+        )
       }
     }
 
@@ -285,12 +709,16 @@ function App() {
 
 
     return () => {
+
       document.removeEventListener(
         'mousedown',
         handleClickOutside
       )
     }
-  }, [attachMenuOpen])
+
+  }, [
+    attachMenuOpen,
+  ])
 
 
   // ========================================
@@ -298,10 +726,19 @@ function App() {
   // ========================================
 
   useEffect(() => {
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus()
-    })
-  }, [messages.length])
+
+    requestAnimationFrame(
+      () => {
+
+        messageInputRef
+          .current
+          ?.focus()
+      }
+    )
+
+  }, [
+    messages.length,
+  ])
 
 
   // ========================================
@@ -309,6 +746,7 @@ function App() {
   // ========================================
 
   useEffect(() => {
+
     const textarea =
       messageInputRef.current
 
@@ -318,31 +756,40 @@ function App() {
     }
 
 
-    textarea.style.height = 'auto'
+    textarea.style.height =
+      'auto'
 
 
     const newHeight =
       Math.min(
+
         Math.max(
           textarea.scrollHeight,
           52
         ),
+
         160
       )
 
 
     textarea.style.height =
       `${newHeight}px`
-  }, [input, messages.length])
+
+  }, [
+    input,
+    messages.length,
+  ])
 
 
   // ========================================
-  // AUTO-SCROLL CHAT
+  // SMART AUTO-SCROLL
   // ========================================
 
-  useEffect(() => {
+  function handleMessagesScroll() {
+
     const container =
-      messagesContainerRef.current
+      messagesContainerRef
+        .current
 
 
     if (!container) {
@@ -350,11 +797,47 @@ function App() {
     }
 
 
-    requestAnimationFrame(() => {
-      container.scrollTop =
-        container.scrollHeight
-    })
-  }, [messages])
+    const distanceFromBottom =
+      container.scrollHeight -
+      container.scrollTop -
+      container.clientHeight
+
+
+    autoScrollEnabledRef
+      .current =
+        distanceFromBottom <
+        120
+  }
+
+
+  useEffect(() => {
+
+    const container =
+      messagesContainerRef
+        .current
+
+
+    if (
+      !container ||
+      !autoScrollEnabledRef
+        .current
+    ) {
+
+      return
+    }
+
+
+    requestAnimationFrame(
+      () => {
+
+        container.scrollTop =
+          container.scrollHeight
+      }
+    )
+
+  }, [
+    messages,
+  ])
 
 
   // ========================================
@@ -362,22 +845,27 @@ function App() {
   // ========================================
 
   function stopGeneration() {
+
     if (
       abortControllerRef.current
     ) {
-      abortControllerRef.current.abort()
+
+      abortControllerRef
+        .current
+        .abort()
     }
   }
 
 
   // ========================================
-  // TOOL EVENT
+  // ADD TOOL EVENT
   // ========================================
 
   function addToolToMessage(
     assistantMessageId,
     toolName
   ) {
+
     if (!toolName) {
       return
     }
@@ -385,12 +873,15 @@ function App() {
 
     setMessages(
       (currentMessages) =>
+
         currentMessages.map(
           (message) => {
+
             if (
               message.id !==
               assistantMessageId
             ) {
+
               return message
             }
 
@@ -400,11 +891,13 @@ function App() {
                 toolName
               )
             ) {
+
               return message
             }
 
 
             return {
+
               ...message,
 
               tools: [
@@ -419,13 +912,14 @@ function App() {
 
 
   // ========================================
-  // TOKEN EVENT
+  // ADD TOKEN
   // ========================================
 
   function addTokenToMessage(
     assistantMessageId,
     token
   ) {
+
     if (!token) {
       return
     }
@@ -433,19 +927,25 @@ function App() {
 
     setMessages(
       (currentMessages) =>
+
         currentMessages.map(
           (message) =>
+
             message.id ===
             assistantMessageId
+
               ? {
+
                   ...message,
 
-                  isThinking: false,
+                  isThinking:
+                    false,
 
                   text:
                     message.text +
                     token,
                 }
+
               : message
         )
     )
@@ -453,25 +953,33 @@ function App() {
 
 
   // ========================================
-  // RESPONSE COMPLETE
+  // FINISH RESPONSE
   // ========================================
 
   function finishAssistantMessage(
     assistantMessageId
   ) {
+
     setMessages(
       (currentMessages) =>
+
         currentMessages.map(
           (message) =>
+
             message.id ===
             assistantMessageId
+
               ? {
+
                   ...message,
 
-                  isThinking: false,
+                  isThinking:
+                    false,
 
-                  isComplete: true,
+                  isComplete:
+                    true,
                 }
+
               : message
         )
     )
@@ -486,17 +994,21 @@ function App() {
     event,
     assistantMessageId
   ) {
+
     if (
       !event ||
       !event.type
     ) {
+
       return
     }
 
 
     if (
-      event.type === 'tool'
+      event.type ===
+      'tool'
     ) {
+
       addToolToMessage(
         assistantMessageId,
         event.name
@@ -507,8 +1019,10 @@ function App() {
 
 
     if (
-      event.type === 'token'
+      event.type ===
+      'token'
     ) {
+
       addTokenToMessage(
         assistantMessageId,
         event.content
@@ -519,8 +1033,10 @@ function App() {
 
 
     if (
-      event.type === 'done'
+      event.type ===
+      'done'
     ) {
+
       finishAssistantMessage(
         assistantMessageId
       )
@@ -533,6 +1049,7 @@ function App() {
   // ========================================
 
   async function sendMessage() {
+
     const typedMessage =
       input.trim()
 
@@ -546,41 +1063,55 @@ function App() {
       typedMessage === '' &&
       !selectedFile
     ) {
+
       return
     }
+
+
+    autoScrollEnabledRef
+      .current =
+        true
+
+
+    setActiveChat(
+      chatId
+    )
 
 
     const attachment =
       selectedFile
 
 
-    /*
-      Kullanıcı yalnızca dosya gönderirse
-      varsayılan bir soru oluştur.
-    */
     const messageText =
       typedMessage ||
+
       (
-        attachment?.category === 'pdf'
+        attachment?.category ===
+        'pdf'
+
           ? 'Bu PDF’i kısaca özetle.'
-          : attachment?.category === 'image'
+
+          : attachment?.category ===
+            'image'
+
             ? 'Bu görseli incele ve önemli noktaları açıkla.'
+
             : ''
       )
 
 
-    /*
-      PDF zaten backend'de aktif RAG belgesi
-      haline getirildiği için modele bunun
-      yeni yüklenen PDF olduğunu belirt.
-    */
     const backendMessage =
-      attachment?.category === 'pdf'
+      attachment?.category ===
+      'pdf'
+
         ? (
+
             `[A PDF named "${attachment.name}" has just been uploaded ` +
             `and loaded as the active PDF document. ` +
             `The user's message refers to this PDF.] ${messageText}`
+
           )
+
         : messageText
 
 
@@ -593,46 +1124,64 @@ function App() {
 
 
     const userMessage = {
-      id: userMessageId,
 
-      text: messageText,
+      id:
+        userMessageId,
 
-      sender: 'user',
+      text:
+        messageText,
 
-      file: attachment
-        ? {
-            name:
-              attachment.name,
+      sender:
+        'user',
 
-            type:
-              attachment.type,
+      file:
+        attachment
 
-            category:
-              attachment.category,
-          }
-        : null,
+          ? {
+
+              name:
+                attachment.name,
+
+              type:
+                attachment.type,
+
+              category:
+                attachment.category,
+            }
+
+          : null,
     }
 
 
     const assistantMessage = {
-      id: assistantMessageId,
 
-      text: '',
+      id:
+        assistantMessageId,
 
-      sender: 'assistant',
+      text:
+        '',
 
-      tools: [],
+      sender:
+        'assistant',
 
-      isThinking: true,
+      tools:
+        [],
 
-      isComplete: false,
+      isThinking:
+        true,
+
+      isComplete:
+        false,
     }
 
 
     setMessages(
       (currentMessages) => [
+
         ...currentMessages,
+
         userMessage,
+
         assistantMessage,
       ]
     )
@@ -656,16 +1205,20 @@ function App() {
 
 
     try {
-      let imageId = null
+
+      let imageId =
+        null
 
 
       // ========================================
-      // UPLOAD PDF FIRST
+      // PDF UPLOAD
       // ========================================
 
       if (
-        attachment?.category === 'pdf'
+        attachment?.category ===
+        'pdf'
       ) {
+
         const formData =
           new FormData()
 
@@ -678,11 +1231,16 @@ function App() {
 
         const uploadResponse =
           await fetch(
-            'http://127.0.0.1:8000/upload-pdf',
-            {
-              method: 'POST',
 
-              body: formData,
+            'http://127.0.0.1:8000/upload-pdf',
+
+            {
+
+              method:
+                'POST',
+
+              body:
+                formData,
 
               signal:
                 controller.signal,
@@ -690,22 +1248,34 @@ function App() {
           )
 
 
-        if (!uploadResponse.ok) {
+        if (
+          !uploadResponse.ok
+        ) {
+
           let errorMessage =
             `PDF upload failed: ${uploadResponse.status}`
 
 
           try {
+
             const errorData =
-              await uploadResponse.json()
+              await uploadResponse
+                .json()
 
 
-            if (errorData?.detail) {
+            if (
+              errorData?.detail
+            ) {
+
               errorMessage =
                 `PDF upload failed: ${errorData.detail}`
             }
-          } catch {
-            // Keep default error message.
+
+          }
+
+          catch {
+
+            // Keep default message.
           }
 
 
@@ -717,12 +1287,14 @@ function App() {
 
 
       // ========================================
-      // UPLOAD IMAGE FIRST
+      // IMAGE UPLOAD
       // ========================================
 
       if (
-        attachment?.category === 'image'
+        attachment?.category ===
+        'image'
       ) {
+
         const formData =
           new FormData()
 
@@ -735,11 +1307,16 @@ function App() {
 
         const uploadResponse =
           await fetch(
-            'http://127.0.0.1:8000/upload-image',
-            {
-              method: 'POST',
 
-              body: formData,
+            'http://127.0.0.1:8000/upload-image',
+
+            {
+
+              method:
+                'POST',
+
+              body:
+                formData,
 
               signal:
                 controller.signal,
@@ -747,22 +1324,34 @@ function App() {
           )
 
 
-        if (!uploadResponse.ok) {
+        if (
+          !uploadResponse.ok
+        ) {
+
           let errorMessage =
             `Image upload failed: ${uploadResponse.status}`
 
 
           try {
+
             const errorData =
-              await uploadResponse.json()
+              await uploadResponse
+                .json()
 
 
-            if (errorData?.detail) {
+            if (
+              errorData?.detail
+            ) {
+
               errorMessage =
                 `Image upload failed: ${errorData.detail}`
             }
-          } catch {
-            // Keep default error message.
+
+          }
+
+          catch {
+
+            // Keep default message.
           }
 
 
@@ -773,7 +1362,8 @@ function App() {
 
 
         const uploadData =
-          await uploadResponse.json()
+          await uploadResponse
+            .json()
 
 
         imageId =
@@ -781,6 +1371,7 @@ function App() {
 
 
         if (!imageId) {
+
           throw new Error(
             'Image upload failed: backend did not return an image ID.'
           )
@@ -789,16 +1380,21 @@ function App() {
 
 
       // ========================================
-      // START CHAT STREAM
+      // CHAT REQUEST
       // ========================================
 
       const requestBody = {
+
         message:
           backendMessage,
+
+        chat_id:
+          chatId,
       }
 
 
       if (imageId) {
+
         requestBody.image_id =
           imageId
       }
@@ -806,18 +1402,24 @@ function App() {
 
       const response =
         await fetch(
+
           'http://127.0.0.1:8000/chat/stream',
+
           {
-            method: 'POST',
+
+            method:
+              'POST',
 
             headers: {
+
               'Content-Type':
                 'application/json',
             },
 
-            body: JSON.stringify(
-              requestBody
-            ),
+            body:
+              JSON.stringify(
+                requestBody
+              ),
 
             signal:
               controller.signal,
@@ -826,21 +1428,30 @@ function App() {
 
 
       if (!response.ok) {
+
         let errorMessage =
           `HTTP error: ${response.status}`
 
 
         try {
+
           const errorData =
             await response.json()
 
 
-          if (errorData?.detail) {
+          if (
+            errorData?.detail
+          ) {
+
             errorMessage =
               errorData.detail
           }
-        } catch {
-          // Keep default error message.
+
+        }
+
+        catch {
+
+          // Keep default message.
         }
 
 
@@ -850,7 +1461,10 @@ function App() {
       }
 
 
-      if (!response.body) {
+      if (
+        !response.body
+      ) {
+
         throw new Error(
           'Streaming response body is missing.'
         )
@@ -858,7 +1472,8 @@ function App() {
 
 
       const reader =
-        response.body.getReader()
+        response.body
+          .getReader()
 
 
       const decoder =
@@ -868,15 +1483,13 @@ function App() {
       let buffer = ''
 
 
-      // ========================================
-      // READ NDJSON STREAM
-      // ========================================
-
       while (true) {
+
         const {
           value,
           done,
-        } = await reader.read()
+        } =
+          await reader.read()
 
 
         if (done) {
@@ -888,33 +1501,42 @@ function App() {
           decoder.decode(
             value,
             {
-              stream: true,
+              stream:
+                true,
             }
           )
 
 
         const lines =
-          buffer.split('\n')
+          buffer.split(
+            '\n'
+          )
 
 
         buffer =
-          lines.pop() || ''
+          lines.pop() ||
+          ''
 
 
         for (
           const line
           of lines
         ) {
+
           const trimmedLine =
             line.trim()
 
 
-          if (!trimmedLine) {
+          if (
+            !trimmedLine
+          ) {
+
             continue
           }
 
 
           try {
+
             const event =
               JSON.parse(
                 trimmedLine
@@ -925,7 +1547,11 @@ function App() {
               event,
               assistantMessageId
             )
-          } catch (error) {
+
+          }
+
+          catch (error) {
+
             console.error(
               'Stream JSON parse error:',
               trimmedLine,
@@ -936,10 +1562,6 @@ function App() {
       }
 
 
-      // ========================================
-      // FINAL BUFFER
-      // ========================================
-
       buffer +=
         decoder.decode()
 
@@ -949,7 +1571,9 @@ function App() {
 
 
       if (finalLine) {
+
         try {
+
           const event =
             JSON.parse(
               finalLine
@@ -960,7 +1584,11 @@ function App() {
             event,
             assistantMessageId
           )
-        } catch (error) {
+
+        }
+
+        catch (error) {
+
           console.error(
             'Final stream JSON parse error:',
             finalLine,
@@ -973,33 +1601,39 @@ function App() {
       finishAssistantMessage(
         assistantMessageId
       )
-    } catch (error) {
+    }
 
-      // ========================================
-      // STOP BUTTON
-      // ========================================
+
+    catch (error) {
 
       if (
         error.name ===
         'AbortError'
       ) {
+
         setMessages(
           (currentMessages) =>
+
             currentMessages.map(
               (message) => {
+
                 if (
                   message.id !==
                   assistantMessageId
                 ) {
+
                   return message
                 }
 
 
                 if (
-                  message.text.trim() ===
+                  message.text
+                    .trim() ===
                   ''
                 ) {
+
                   return {
+
                     ...message,
 
                     isThinking:
@@ -1015,6 +1649,7 @@ function App() {
 
 
                 return {
+
                   ...message,
 
                   isThinking:
@@ -1028,11 +1663,8 @@ function App() {
         )
       }
 
-      // ========================================
-      // OTHER ERROR
-      // ========================================
-
       else {
+
         console.error(
           'ChatOmni backend error:',
           error
@@ -1040,10 +1672,14 @@ function App() {
 
 
         const isUploadError =
+
           error.message
             ?.startsWith(
               'PDF upload failed:'
-            ) ||
+            )
+
+          ||
+
           error.message
             ?.startsWith(
               'Image upload failed:'
@@ -1052,11 +1688,15 @@ function App() {
 
         setMessages(
           (currentMessages) =>
+
             currentMessages.map(
               (message) =>
+
                 message.id ===
                 assistantMessageId
+
                   ? {
+
                       ...message,
 
                       isThinking:
@@ -1067,27 +1707,45 @@ function App() {
 
                       text:
                         message.text ||
+
                         (
                           isUploadError
+
                             ? error.message
+
                             : 'ChatOmni backend could not be reached.'
                         ),
                     }
+
                   : message
             )
         )
       }
-    } finally {
+    }
+
+
+    finally {
+
       abortControllerRef.current =
         null
 
 
-      setIsStreaming(false)
+      setIsStreaming(
+        false
+      )
 
 
-      requestAnimationFrame(() => {
-        messageInputRef.current?.focus()
-      })
+      await loadChats()
+
+
+      requestAnimationFrame(
+        () => {
+
+          messageInputRef
+            .current
+            ?.focus()
+        }
+      )
     }
   }
 
@@ -1096,15 +1754,24 @@ function App() {
   // KEYBOARD
   // ========================================
 
-  function handleKeyDown(event) {
+  function handleKeyDown(
+    event
+  ) {
+
     if (
-      event.key === 'Enter' &&
+      event.key ===
+        'Enter' &&
+
       !event.shiftKey
     ) {
+
       event.preventDefault()
 
 
-      if (!isStreaming) {
+      if (
+        !isStreaming
+      ) {
+
         sendMessage()
       }
     }
@@ -1116,36 +1783,55 @@ function App() {
   // ========================================
 
   function toggleTheme() {
+
     setTheme(
-      theme === 'dark'
+
+      theme ===
+      'dark'
+
         ? 'light'
+
         : 'dark'
     )
   }
 
 
   // ========================================
-  // ATTACHMENTS
+  // ATTACHMENT MENU
   // ========================================
 
   function toggleAttachMenu() {
+
     setAttachMenuOpen(
-      (current) => !current
+      (current) =>
+        !current
     )
   }
 
 
   function choosePDF() {
-    setAttachMenuOpen(false)
 
-    pdfInputRef.current?.click()
+    setAttachMenuOpen(
+      false
+    )
+
+
+    pdfInputRef
+      .current
+      ?.click()
   }
 
 
   function chooseImage() {
-    setAttachMenuOpen(false)
 
-    imageInputRef.current?.click()
+    setAttachMenuOpen(
+      false
+    )
+
+
+    imageInputRef
+      .current
+      ?.click()
   }
 
 
@@ -1153,25 +1839,34 @@ function App() {
   // PDF SELECT
   // ========================================
 
-  function handlePDFChange(event) {
+  function handlePDFChange(
+    event
+  ) {
+
     const file =
       event.target.files[0]
 
 
     if (file) {
+
       setSelectedFile({
+
         file,
 
-        name: file.name,
+        name:
+          file.name,
 
-        type: file.type,
+        type:
+          file.type,
 
-        category: 'pdf',
+        category:
+          'pdf',
       })
     }
 
 
-    event.target.value = ''
+    event.target.value =
+      ''
   }
 
 
@@ -1179,20 +1874,29 @@ function App() {
   // IMAGE SELECT
   // ========================================
 
-  function handleImageChange(event) {
+  function handleImageChange(
+    event
+  ) {
+
     const file =
       event.target.files[0]
 
 
     if (!file) {
-      event.target.value = ''
+
+      event.target.value =
+        ''
+
       return
     }
 
 
     const allowedTypes = [
+
       'image/png',
+
       'image/jpeg',
+
       'image/webp',
     ]
 
@@ -1202,67 +1906,84 @@ function App() {
         file.type
       )
     ) {
+
       alert(
         'Supported image formats are PNG, JPG, JPEG, and WEBP.'
       )
 
-      event.target.value = ''
+
+      event.target.value =
+        ''
 
       return
     }
 
 
     setSelectedFile({
+
       file,
 
-      name: file.name,
+      name:
+        file.name,
 
-      type: file.type,
+      type:
+        file.type,
 
-      category: 'image',
+      category:
+        'image',
     })
 
 
-    event.target.value = ''
+    event.target.value =
+      ''
   }
 
 
   // ========================================
-  // PASTE SCREENSHOT / IMAGE
+  // PASTE SCREENSHOT
   // ========================================
 
-  function handlePaste(event) {
+  function handlePaste(
+    event
+  ) {
+
     const clipboardItems =
-      event.clipboardData?.items
+      event
+        .clipboardData
+        ?.items
 
 
-    if (!clipboardItems) {
+    if (
+      !clipboardItems
+    ) {
+
       return
     }
 
 
     const imageItem =
       Array
-        .from(clipboardItems)
+        .from(
+          clipboardItems
+        )
         .find(
           (item) =>
+
             item.type
-              .startsWith('image/')
+              .startsWith(
+                'image/'
+              )
         )
 
 
-    /*
-      Clipboard'da görsel yoksa hiçbir
-      şey yapmıyoruz. Böylece normal
-      Ctrl+V text paste çalışmaya devam eder.
-    */
     if (!imageItem) {
       return
     }
 
 
     const imageBlob =
-      imageItem.getAsFile()
+      imageItem
+        .getAsFile()
 
 
     if (!imageBlob) {
@@ -1271,8 +1992,11 @@ function App() {
 
 
     const allowedTypes = [
+
       'image/png',
+
       'image/jpeg',
+
       'image/webp',
     ]
 
@@ -1282,6 +2006,7 @@ function App() {
         imageBlob.type
       )
     ) {
+
       alert(
         'Pasted image format is not supported. Use PNG, JPG, JPEG, or WEBP.'
       )
@@ -1290,40 +2015,44 @@ function App() {
     }
 
 
-    /*
-      Görsel bulunduğunda browser'ın
-      textarea'ya farklı clipboard içeriği
-      yapıştırmasını engelle.
-    */
     event.preventDefault()
 
 
-    let extension = 'png'
+    let extension =
+      'png'
 
 
     if (
       imageBlob.type ===
       'image/jpeg'
     ) {
-      extension = 'jpg'
+
+      extension =
+        'jpg'
     }
 
 
-    if (
+    else if (
       imageBlob.type ===
       'image/webp'
     ) {
-      extension = 'webp'
+
+      extension =
+        'webp'
     }
 
 
     const screenshotFile =
       new File(
-        [imageBlob],
+
+        [
+          imageBlob,
+        ],
 
         `screenshot-${Date.now()}.${extension}`,
 
         {
+
           type:
             imageBlob.type,
         }
@@ -1331,6 +2060,7 @@ function App() {
 
 
     setSelectedFile({
+
       file:
         screenshotFile,
 
@@ -1345,7 +2075,9 @@ function App() {
     })
 
 
-    setAttachMenuOpen(false)
+    setAttachMenuOpen(
+      false
+    )
   }
 
 
@@ -1354,12 +2086,20 @@ function App() {
   // ========================================
 
   function removeSelectedFile() {
-    setSelectedFile(null)
+
+    setSelectedFile(
+      null
+    )
 
 
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus()
-    })
+    requestAnimationFrame(
+      () => {
+
+        messageInputRef
+          .current
+          ?.focus()
+      }
+    )
   }
 
 
@@ -1368,9 +2108,25 @@ function App() {
   // ========================================
 
   function startNewChat() {
+
     if (isStreaming) {
+
       stopGeneration()
     }
+
+
+    const newChatId =
+      crypto.randomUUID()
+
+
+    setChatId(
+      newChatId
+    )
+
+
+    setActiveChat(
+      null
+    )
 
 
     setMessages([])
@@ -1381,26 +2137,309 @@ function App() {
 
     setAttachMenuOpen(false)
 
-    setActiveChat(null)
+
+    autoScrollEnabledRef
+      .current =
+        true
 
 
-    requestAnimationFrame(() => {
-      messageInputRef.current?.focus()
-    })
+    requestAnimationFrame(
+      () => {
+
+        messageInputRef
+          .current
+          ?.focus()
+      }
+    )
   }
 
 
   // ========================================
-  // SELECT CHAT
+  // SELECT SAVED CHAT
   // ========================================
 
-  function selectChat(chatName) {
-    setActiveChat(chatName)
+  async function selectChat(
+    chat
+  ) {
 
-    /*
-      Persistent conversation
-      sistemi daha sonra bağlanacak.
-    */
+    if (
+      !chat?.chat_id ||
+      isStreaming
+    ) {
+
+      return
+    }
+
+
+    const selectedChatId =
+      chat.chat_id
+
+
+    setActiveChat(
+      selectedChatId
+    )
+
+
+    setChatId(
+      selectedChatId
+    )
+
+
+    setInput('')
+
+    setSelectedFile(null)
+
+    setAttachMenuOpen(false)
+
+    setMessages([])
+
+
+    autoScrollEnabledRef
+      .current =
+        true
+
+
+    try {
+
+      const response =
+        await fetch(
+
+          `http://127.0.0.1:8000/chats/${encodeURIComponent(selectedChatId)}/messages`
+        )
+
+
+      if (!response.ok) {
+
+        throw new Error(
+          `Chat messages error: ${response.status}`
+        )
+      }
+
+
+      const data =
+        await response.json()
+
+
+      const savedMessages =
+        Array.isArray(
+          data.messages
+        )
+
+          ? data.messages
+
+          : []
+
+
+      const baseId =
+        Date.now()
+
+
+      const loadedMessages =
+        savedMessages.map(
+          (message, index) => {
+
+            if (
+              message.sender ===
+              'user'
+            ) {
+
+              return {
+
+                id:
+                  baseId + index,
+
+                text:
+                  message.text || '',
+
+                sender:
+                  'user',
+
+                file:
+                  null,
+              }
+            }
+
+
+            return {
+
+              id:
+                baseId + index,
+
+              text:
+                message.text || '',
+
+              sender:
+                'assistant',
+
+              tools:
+                [],
+
+              isThinking:
+                false,
+
+              isComplete:
+                true,
+            }
+          }
+        )
+
+
+      setMessages(
+        loadedMessages
+      )
+
+
+      requestAnimationFrame(
+        () => {
+
+          const container =
+            messagesContainerRef
+              .current
+
+
+          if (container) {
+
+            container.scrollTop =
+              container.scrollHeight
+          }
+        }
+      )
+
+    }
+
+    catch (error) {
+
+      console.error(
+        'Could not load chat:',
+        error
+      )
+
+
+      setMessages([
+        {
+
+          id:
+            Date.now(),
+
+          text:
+            'Saved chat could not be loaded.',
+
+          sender:
+            'assistant',
+
+          tools:
+            [],
+
+          isThinking:
+            false,
+
+          isComplete:
+            true,
+        },
+      ])
+    }
+  }
+
+
+  // ========================================
+  // DELETE SAVED CHAT
+  // ========================================
+
+  async function deleteSavedChat(
+    event,
+    chat
+  ) {
+
+    event.stopPropagation()
+
+
+    if (
+      !chat?.chat_id ||
+      isStreaming
+    ) {
+
+      return
+    }
+
+
+    const confirmed =
+      window.confirm(
+        `Delete "${chat.title || 'New Chat'}"?`
+      )
+
+
+    if (!confirmed) {
+      return
+    }
+
+
+    try {
+
+      const response =
+        await fetch(
+
+          `http://127.0.0.1:8000/chats/${encodeURIComponent(chat.chat_id)}`,
+
+          {
+            method:
+              'DELETE',
+          }
+        )
+
+
+      if (!response.ok) {
+
+        throw new Error(
+          `Delete chat error: ${response.status}`
+        )
+      }
+
+
+      if (
+        activeChat ===
+        chat.chat_id
+      ) {
+
+        const newChatId =
+          crypto.randomUUID()
+
+
+        setChatId(
+          newChatId
+        )
+
+
+        setActiveChat(
+          null
+        )
+
+
+        setMessages([])
+
+        setInput('')
+
+        setSelectedFile(null)
+
+        setAttachMenuOpen(false)
+      }
+
+
+      await loadChats()
+
+    }
+
+    catch (error) {
+
+      console.error(
+        'Could not delete chat:',
+        error
+      )
+
+
+      alert(
+        'Chat could not be deleted.'
+      )
+    }
   }
 
 
@@ -1409,30 +2448,46 @@ function App() {
   // ========================================
 
   function renderInput() {
+
     return (
+
       <div className="input-wrapper">
 
+
         {selectedFile && (
+
           <div className="selected-file">
 
             <div className="selected-file-info">
 
               <span className="file-icon">
-                {selectedFile.category ===
-                'pdf'
-                  ? 'PDF'
-                  : 'IMG'}
+
+                {
+                  selectedFile
+                    .category ===
+                  'pdf'
+
+                    ? 'PDF'
+
+                    : 'IMG'
+                }
+
               </span>
 
 
               <span className="file-name">
-                {selectedFile.name}
+
+                {
+                  selectedFile.name
+                }
+
               </span>
 
             </div>
 
 
             <button
+
               className="remove-file-button"
 
               onClick={
@@ -1441,22 +2496,30 @@ function App() {
 
               aria-label="Remove selected file"
             >
+
               ×
+
             </button>
 
           </div>
+
         )}
 
 
         <div className="message-box">
 
+
           <div
+
             className="attach-area"
 
-            ref={attachAreaRef}
+            ref={
+              attachAreaRef
+            }
           >
 
             <button
+
               className="attach-button"
 
               onClick={
@@ -1467,20 +2530,26 @@ function App() {
 
               title="Attach"
             >
+
               +
+
             </button>
 
 
             {attachMenuOpen && (
+
               <div className="attach-menu">
 
+
                 <button
+
                   className="attach-option"
 
                   onClick={
                     choosePDF
                   }
                 >
+
                   <span className="attach-option-icon">
                     PDF
                   </span>
@@ -1488,16 +2557,19 @@ function App() {
                   <span>
                     Upload PDF
                   </span>
+
                 </button>
 
 
                 <button
+
                   className="attach-option"
 
                   onClick={
                     chooseImage
                   }
                 >
+
                   <span className="attach-option-icon">
                     IMG
                   </span>
@@ -1505,16 +2577,22 @@ function App() {
                   <span>
                     Upload Image
                   </span>
+
                 </button>
 
+
               </div>
+
             )}
 
           </div>
 
 
           <input
-            ref={pdfInputRef}
+
+            ref={
+              pdfInputRef
+            }
 
             className="hidden-file-input"
 
@@ -1529,7 +2607,10 @@ function App() {
 
 
           <input
-            ref={imageInputRef}
+
+            ref={
+              imageInputRef
+            }
 
             className="hidden-file-input"
 
@@ -1544,20 +2625,29 @@ function App() {
 
 
           <textarea
-            ref={messageInputRef}
+
+            ref={
+              messageInputRef
+            }
 
             className="message-input"
 
             placeholder="Message ChatOmni..."
 
-            value={input}
+            value={
+              input
+            }
 
             rows={1}
 
-            onChange={(event) =>
-              setInput(
-                event.target.value
-              )
+            onChange={
+              (event) =>
+
+                setInput(
+                  event
+                    .target
+                    .value
+                )
             }
 
             onKeyDown={
@@ -1571,34 +2661,50 @@ function App() {
 
 
           <button
+
             className={
               isStreaming
+
                 ? 'send-button stop-button'
+
                 : 'send-button'
             }
 
             onClick={
               isStreaming
+
                 ? stopGeneration
+
                 : sendMessage
             }
 
             title={
               isStreaming
+
                 ? 'Stop response'
+
                 : 'Send message'
             }
 
             aria-label={
               isStreaming
+
                 ? 'Stop response'
+
                 : 'Send message'
             }
           >
-            {isStreaming
-              ? '■'
-              : 'Send'}
+
+            {
+              isStreaming
+
+                ? '■'
+
+                : 'Send'
+            }
+
           </button>
+
 
         </div>
 
@@ -1608,44 +2714,62 @@ function App() {
 
 
   // ========================================
-  // MAIN UI
+  // UI
   // ========================================
 
   return (
-    <div className={`app ${theme}`}>
+
+    <div
+      className={
+        `app ${theme}`
+      }
+    >
 
 
-      {/* ========================================
+      {/* ====================================
           SIDEBAR
-          ======================================== */}
+          ==================================== */}
 
       <aside
-        className={`sidebar ${
-          sidebarOpen
-            ? 'sidebar-open'
-            : 'sidebar-closed'
-        }`}
+
+        className={
+          `sidebar ${
+            sidebarOpen
+
+              ? 'sidebar-open'
+
+              : 'sidebar-closed'
+          }`
+        }
       >
 
         <div className="sidebar-content">
 
 
           <button
+
             className="sidebar-close-button"
 
-            onClick={() =>
-              setSidebarOpen(false)
+            onClick={
+              () =>
+
+                setSidebarOpen(
+                  false
+                )
             }
 
             title="Hide sidebar"
 
             aria-label="Hide sidebar"
           >
+
             ‹
+
           </button>
 
 
           <div className="sidebar-top">
+
 
             <h2>
               ChatOmni
@@ -1653,12 +2777,14 @@ function App() {
 
 
             <button
+
               className="new-chat-button"
 
               onClick={
                 startNewChat
               }
             >
+
               <span className="new-chat-icon">
                 +
               </span>
@@ -1666,12 +2792,15 @@ function App() {
               <span>
                 New Chat
               </span>
+
             </button>
+
 
           </div>
 
 
           <div className="sidebar-chats">
+
 
             <p className="chats-title">
               Chats
@@ -1680,285 +2809,473 @@ function App() {
 
             <div className="chat-list">
 
-              <button
-                className={`chat-item ${
-                  activeChat ===
-                  'ChatOmni Development'
-                    ? 'active'
-                    : ''
-                }`}
 
-                onClick={() =>
-                  selectChat(
-                    'ChatOmni Development'
+              {
+                chats.map(
+                  (chat) => (
+
+                    <div
+
+                      key={
+                        chat.chat_id
+                      }
+
+                      className={
+                        `chat-item ${
+                          activeChat ===
+                          chat.chat_id
+
+                            ? 'active'
+
+                            : ''
+                        }`
+                      }
+
+                      onClick={
+                        () =>
+                          selectChat(
+                            chat
+                          )
+                      }
+
+                      role="button"
+
+                      tabIndex={0}
+
+                      title={
+                        chat.title ||
+                        'New Chat'
+                      }
+
+                      onKeyDown={
+                        (event) => {
+
+                          if (
+                            event.key ===
+                              'Enter'
+                          ) {
+
+                            selectChat(
+                              chat
+                            )
+                          }
+                        }
+                      }
+
+                      style={{
+                        display:
+                          'flex',
+
+                        alignItems:
+                          'center',
+
+                        gap:
+                          '6px',
+                      }}
+                    >
+
+
+                      <span
+                        style={{
+                          flex:
+                            1,
+
+                          minWidth:
+                            0,
+
+                          overflow:
+                            'hidden',
+
+                          textOverflow:
+                            'ellipsis',
+
+                          whiteSpace:
+                            'nowrap',
+                        }}
+                      >
+
+                        {
+                          chat.title ||
+                          'New Chat'
+                        }
+
+                      </span>
+
+
+                      <button
+
+                        type="button"
+
+                        onClick={
+                          (event) =>
+                            deleteSavedChat(
+                              event,
+                              chat
+                            )
+                        }
+
+                        title="Delete chat"
+
+                        aria-label="Delete chat"
+
+                        style={{
+                          width:
+                            '28px',
+
+                          height:
+                            '28px',
+
+                          flexShrink:
+                            0,
+
+                          display:
+                            'flex',
+
+                          alignItems:
+                            'center',
+
+                          justifyContent:
+                            'center',
+
+                          padding:
+                            0,
+
+                          border:
+                            'none',
+
+                          borderRadius:
+                            '7px',
+
+                          background:
+                            'transparent',
+
+                          color:
+                            'inherit',
+
+                          fontSize:
+                            '14px',
+
+                          cursor:
+                            'pointer',
+
+                          opacity:
+                            0.65,
+                        }}
+                      >
+
+                        🗑
+
+                      </button>
+
+
+                    </div>
+
                   )
-                }
-              >
-                ChatOmni Development
-              </button>
+                )
+              }
 
-
-              <button
-                className={`chat-item ${
-                  activeChat ===
-                  'Python Debugging'
-                    ? 'active'
-                    : ''
-                }`}
-
-                onClick={() =>
-                  selectChat(
-                    'Python Debugging'
-                  )
-                }
-              >
-                Python Debugging
-              </button>
-
-
-              <button
-                className={`chat-item ${
-                  activeChat ===
-                  'AI Internship'
-                    ? 'active'
-                    : ''
-                }`}
-
-                onClick={() =>
-                  selectChat(
-                    'AI Internship'
-                  )
-                }
-              >
-                AI Internship
-              </button>
 
             </div>
 
+
           </div>
+
 
         </div>
 
       </aside>
 
 
-      {/* ========================================
+      {/* ====================================
           CHAT AREA
-          ======================================== */}
+          ==================================== */}
 
       <main className="chat-area">
 
 
         <button
-          className={`sidebar-open-button ${
-            sidebarOpen
-              ? 'sidebar-open-button-hidden'
-              : 'sidebar-open-button-visible'
-          }`}
 
-          onClick={() =>
-            setSidebarOpen(true)
+          className={
+            `sidebar-open-button ${
+              sidebarOpen
+
+                ? 'sidebar-open-button-hidden'
+
+                : 'sidebar-open-button-visible'
+            }`
+          }
+
+          onClick={
+            () =>
+
+              setSidebarOpen(
+                true
+              )
           }
 
           title="Show sidebar"
 
           aria-label="Show sidebar"
         >
+
           ›
+
         </button>
 
 
         <div className="top-controls">
 
+
           <button
+
             className="theme-button"
 
             onClick={
               toggleTheme
             }
           >
-            {theme === 'dark'
-              ? '☀ Light'
-              : '🌙 Dark'}
+
+            {
+              theme ===
+              'dark'
+
+                ? '☀ Light'
+
+                : '🌙 Dark'
+            }
+
           </button>
+
 
         </div>
 
 
-        {/* ========================================
+        {/* ==================================
             EMPTY CHAT
-            ======================================== */}
+            ================================== */}
 
-        {messages.length === 0 ? (
+        {
 
-          <div className="start-screen">
+          messages.length ===
+          0
 
-            <div className="welcome">
+            ? (
 
-              <h1>
-                ChatOmni
-              </h1>
-
-            </div>
+              <div className="start-screen">
 
 
-            <div className="start-input">
-              {renderInput()}
-            </div>
+                <div className="welcome">
 
-          </div>
+                  <h1>
+                    ChatOmni
+                  </h1>
 
-        ) : (
-
-          <>
+                </div>
 
 
-            {/* ========================================
-                MESSAGES
-                ======================================== */}
+                <div className="start-input">
 
-            <div
-              className="messages-scroll"
+                  {
+                    renderInput()
+                  }
 
-              ref={
-                messagesContainerRef
-              }
-            >
+                </div>
 
-              <div className="messages">
-
-
-                {messages.map(
-                  (message) =>
-
-                    message.sender ===
-                    'user' ? (
-
-                      // ========================================
-                      // USER MESSAGE
-                      // ========================================
-
-                      <div
-                        key={message.id}
-
-                        className="user-message"
-                      >
-
-                        {message.file && (
-                          <div className="message-file">
-
-                            <span>
-                              {message.file
-                                .category ===
-                              'pdf'
-                                ? 'PDF'
-                                : 'IMG'}
-                            </span>
-
-                            {
-                              message.file
-                                .name
-                            }
-
-                          </div>
-                        )}
-
-
-                        {message.text && (
-                          <div>
-                            {message.text}
-                          </div>
-                        )}
-
-                      </div>
-
-                    ) : (
-
-                      // ========================================
-                      // ASSISTANT MESSAGE
-                      // ========================================
-
-                      <div
-                        key={message.id}
-
-                        className="assistant-message"
-                      >
-
-                        {message.isThinking ? (
-
-                          // ========================================
-                          // THINKING
-                          // ========================================
-
-                          <div className="thinking-row">
-
-                            <span className="thinking-label">
-                              Thinking
-                            </span>
-
-
-                            <span className="thinking-dots">
-
-                              <span />
-
-                              <span />
-
-                              <span />
-
-                            </span>
-
-                          </div>
-
-                        ) : (
-
-                          // ========================================
-                          // ANSWER
-                          // ========================================
-
-                          <div className="assistant-text">
-
-                            <MarkdownAnswer
-                              text={
-                                message.text
-                              }
-
-                              tools={
-                                message.tools
-                              }
-
-                              showToolIcons={
-                                message.isComplete
-                              }
-                            />
-
-                          </div>
-
-                        )}
-
-                      </div>
-
-                    )
-                )}
 
               </div>
 
-            </div>
+            )
+
+            : (
+
+              <>
 
 
-            {/* ========================================
-                BOTTOM INPUT
-                ======================================== */}
+                {/* ==============================
+                    MESSAGES
+                    ============================== */}
 
-            <div className="input-area">
+                <div
 
-              {renderInput()}
+                  className="messages-scroll"
 
-            </div>
+                  ref={
+                    messagesContainerRef
+                  }
+
+                  onScroll={
+                    handleMessagesScroll
+                  }
+                >
+
+                  <div className="messages">
 
 
-          </>
+                    {
+                      messages.map(
+                        (message) =>
 
-        )}
+                          message.sender ===
+                          'user'
+
+                            ? (
+
+                              <div
+
+                                key={
+                                  message.id
+                                }
+
+                                className="user-message"
+                              >
+
+
+                                {message.file && (
+
+                                  <div className="message-file">
+
+
+                                    <span>
+
+                                      {
+                                        message
+                                          .file
+                                          .category ===
+                                        'pdf'
+
+                                          ? 'PDF'
+
+                                          : 'IMG'
+                                      }
+
+                                    </span>
+
+
+                                    {
+                                      message
+                                        .file
+                                        .name
+                                    }
+
+
+                                  </div>
+
+                                )}
+
+
+                                {message.text && (
+
+                                  <div>
+
+                                    {
+                                      message.text
+                                    }
+
+                                  </div>
+
+                                )}
+
+
+                              </div>
+
+                            )
+
+                            : (
+
+                              <div
+
+                                key={
+                                  message.id
+                                }
+
+                                className="assistant-message"
+                              >
+
+
+                                {
+                                  message.isThinking
+
+                                    ? (
+
+                                      <div className="thinking-row">
+
+
+                                        <span className="thinking-label">
+                                          Thinking
+                                        </span>
+
+
+                                        <span className="thinking-dots">
+
+                                          <span />
+
+                                          <span />
+
+                                          <span />
+
+                                        </span>
+
+
+                                      </div>
+
+                                    )
+
+                                    : (
+
+                                      <div className="assistant-text">
+
+
+                                        <MarkdownAnswer
+
+                                          text={
+                                            message.text
+                                          }
+
+                                          tools={
+                                            message.tools
+                                          }
+
+                                          showToolIcons={
+                                            message.isComplete
+                                          }
+                                        />
+
+
+                                      </div>
+
+                                    )
+                                }
+
+
+                              </div>
+
+                            )
+                      )
+                    }
+
+
+                  </div>
+
+                </div>
+
+
+                {/* ==============================
+                    BOTTOM INPUT
+                    ============================== */}
+
+                <div className="input-area">
+
+                  {
+                    renderInput()
+                  }
+
+                </div>
+
+
+              </>
+
+            )
+        }
 
 
       </main>

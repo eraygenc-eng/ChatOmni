@@ -12,6 +12,11 @@ from langchain.messages import (
     AIMessageChunk,
 )
 
+from src.titles import create_title_if_needed
+
+from src.conversations import (ensure_chat, get_chats, delete_chat)
+
+from src.checkpointer import get_checkpointer
 from src.agent import get_agent
 from src.citations import get_web_sources
 from src.context import Context
@@ -62,13 +67,8 @@ app.add_middleware(
 
 
 agent = get_agent()
+checkpointer = get_checkpointer()
 
-
-config = {
-    "configurable": {
-        "thread_id": "current_chat"
-    }
-}
 
 
 context = Context(
@@ -79,6 +79,92 @@ context = Context(
 class ChatRequest(BaseModel):
     message: str
     image_id: str | None = None
+    chat_id: str = "current_chat"
+
+def get_chat_config(
+    chat_id: str
+) -> dict:
+
+    thread_id = (
+        chat_id.strip()
+        or
+        "current_chat"
+    )
+
+    return {
+        "configurable": {
+            "thread_id": thread_id
+        }
+    }
+
+# Gets readable text from a saved LangChain message.
+def get_message_text(
+    content
+) -> str:
+
+    if isinstance(
+        content,
+        str
+    ):
+        return content
+
+
+    if isinstance(
+        content,
+        list
+    ):
+
+        text_parts = []
+
+
+        for item in content:
+
+            if isinstance(
+                item,
+                str
+            ):
+                text_parts.append(
+                    item
+                )
+
+                continue
+
+
+            if not isinstance(
+                item,
+                dict
+            ):
+                continue
+
+
+            if (
+                item.get("type")
+                in
+                {
+                    "text",
+                    "input_text",
+                }
+            ):
+
+                text = item.get(
+                    "text"
+                )
+
+
+                if text:
+                    text_parts.append(
+                        text
+                    )
+
+
+        return "\n".join(
+            text_parts
+        ).strip()
+
+
+    return str(
+        content
+    )
 
 def build_user_message(
     request: ChatRequest
@@ -245,6 +331,136 @@ def health_check():
     return {
         "status": "ok"
     }
+
+
+
+@app.get("/chats")
+def list_chats():
+
+    return {
+        "chats":
+            get_chats()
+    }
+
+# Deletes a saved chat and its conversation history.
+@app.delete(
+    "/chats/{chat_id}"
+)
+def remove_chat(
+    chat_id: str
+):
+
+    thread_id = (
+        chat_id.strip()
+        or
+        "current_chat"
+    )
+
+
+    checkpointer.delete_thread(
+        thread_id
+    )
+
+
+    delete_chat(
+        thread_id
+    )
+
+
+    return {
+        "status": "ok",
+        "chat_id": thread_id,
+    }
+
+
+# Gets saved messages from a chat.
+@app.get(
+    "/chats/{chat_id}/messages"
+)
+def get_chat_messages(
+    chat_id: str
+):
+
+    config = get_chat_config(
+        chat_id
+    )
+
+
+    snapshot = agent.get_state(
+        config
+    )
+
+
+    saved_messages = (
+        snapshot.values.get(
+            "messages",
+            []
+        )
+    )
+
+
+    messages = []
+
+
+    for message in saved_messages:
+
+        message_type = getattr(
+            message,
+            "type",
+            ""
+        )
+
+
+        if (
+            message_type
+            not in
+            {
+                "human",
+                "ai",
+            }
+        ):
+            continue
+
+
+        text = get_message_text(
+            getattr(
+                message,
+                "content",
+                ""
+            )
+        )
+
+
+        if not text:
+            continue
+
+
+        messages.append(
+            {
+                "sender":
+                    (
+                        "user"
+                        if
+                        message_type
+                        == "human"
+                        else
+                        "assistant"
+                    ),
+
+                "text":
+                    text,
+            }
+        )
+
+
+    return {
+        "chat_id":
+            chat_id,
+
+        "messages":
+            messages,
+    }
+
 
 @app.post("/upload-pdf")
 async def upload_pdf(
@@ -420,6 +636,19 @@ def chat(
     request: ChatRequest
 ):
 
+    config = get_chat_config(
+        request.chat_id
+    )
+
+    ensure_chat(
+        request.chat_id
+    )
+
+    create_title_if_needed(
+        request.chat_id,
+        request.message
+    )
+        
     user_message = (
         build_user_message(
             request
@@ -450,6 +679,19 @@ def chat_stream(
     request: ChatRequest
 ):
 
+    config = get_chat_config(
+        request.chat_id
+    )
+
+    ensure_chat(
+        request.chat_id
+    )
+
+    create_title_if_needed(
+        request.chat_id,
+        request.message
+    )
+
     def generate():
 
         user_message = (
@@ -476,10 +718,7 @@ def chat_stream(
             version="v2",
         ):
 
-            # ==================================
             # STREAM TOKENS
-            # ==================================
-
             if (
                 chunk["type"]
                 == "messages"
@@ -511,10 +750,8 @@ def chat_stream(
                     )
 
 
-            # ==================================
+        
             # AGENT UPDATES
-            # ==================================
-
             elif (
                 chunk["type"]
                 == "updates"
@@ -556,10 +793,8 @@ def chat_stream(
                         continue
 
 
-                    # --------------------------
+                    
                     # SAVE FINAL AI RESPONSE
-                    # --------------------------
-
                     if not (
                         message.tool_calls
                     ):
@@ -568,10 +803,7 @@ def chat_stream(
                         )
 
 
-                    # --------------------------
                     # CUSTOM TOOL DETECTION
-                    # --------------------------
-
                     for tool_call in (
                         message.tool_calls
                         or []
@@ -615,9 +847,7 @@ def chat_stream(
                         )
 
 
-        # ==================================
         # WEB SEARCH DETECTION
-        # ==================================
         #
         # OpenAI built-in web search is not
         # always exposed through the normal
@@ -626,8 +856,6 @@ def chat_stream(
         # Instead, detect it from the web
         # citations contained in the final
         # AI response.
-        # ==================================
-
         if final_response is not None:
 
             web_sources = (
@@ -655,10 +883,7 @@ def chat_stream(
                 )
 
 
-        # ==================================
         # STREAM COMPLETE
-        # ==================================
-
         yield (
             create_stream_event(
                 "done"

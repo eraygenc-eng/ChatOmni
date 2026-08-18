@@ -1,9 +1,9 @@
 from langchain.agents import create_agent
 from config import get_model
 from src.tools import calculator, web_search_tool, rag_pdf, currency_converter, save_memory, get_saved_memories
-from langgraph.checkpoint.memory import InMemorySaver
 from src.memory import get_memory_store
 from src.context import Context
+from src.checkpointer import get_checkpointer
 
 SYSTEM_PROMPT =  """
 You are ChatOmni, a helpful AI assistant.
@@ -102,7 +102,7 @@ use the get_saved_memories tool when needed.
 Be clear, helpful, and conversational.
 """
 
-memory = InMemorySaver()
+checkpointer = get_checkpointer()
 long_term_memory = get_memory_store()
 
 def get_agent():
@@ -113,7 +113,7 @@ def get_agent():
         model=model,
         tools=[calculator, web_search_tool, rag_pdf, currency_converter, save_memory, get_saved_memories],
         system_prompt=SYSTEM_PROMPT,
-        checkpointer=memory,
+        checkpointer=checkpointer,
         store=long_term_memory,
         context_schema=Context
     )
