@@ -13,6 +13,7 @@ The goal of the project is to build a conversational AI assistant that combines 
 - Multi-language code execution
 - Code and text file analysis
 - Downloadable code generation
+- Selectable AI models for different task complexity levels
 
 Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent**.
 
@@ -26,7 +27,7 @@ ChatOmni is currently under active development.
 
 ## Conversational AI
 
-ChatOmni supports natural general-purpose conversation using an OpenAI language model through LangChain.
+ChatOmni supports natural general-purpose conversation using OpenAI language models through LangChain.
 
 The assistant can:
 
@@ -39,13 +40,152 @@ The assistant can:
 - Generate Markdown-formatted responses
 - Render mathematical expressions using LaTeX
 
-The current model configuration uses **GPT-5.6 Terra** through the OpenAI API.
+ChatOmni currently supports two selectable models:
+
+```text
+GPT-5.6 Luna
+GPT-5.6 Terra
+```
+
+**GPT-5.6 Luna** is the default model and is intended for everyday conversations, general questions, and tasks where faster and more cost-efficient responses are preferred.
+
+**GPT-5.6 Terra** can be selected manually for more demanding tasks such as advanced coding, debugging, architecture discussions, deeper analysis, and other complex requests.
+
+---
+
+# Model Selection
+
+ChatOmni includes a model selector directly inside the React chat interface.
+
+Users can switch between:
+
+```text
+GPT-5.6 Luna
+        or
+GPT-5.6 Terra
+```
+
+before sending a message.
+
+Conceptually:
+
+```text
+User
+  │
+  ▼
+Model Selector
+  │
+  ├─────────────── GPT-5.6 Luna
+  │
+  └─────────────── GPT-5.6 Terra
+  │
+  ▼
+ChatOmni Agent
+```
+
+The selected model is sent together with the chat request to FastAPI.
+
+The backend then loads the corresponding ChatOmni agent configuration.
+
+```text
+React
+  │
+  ▼
+Selected Model
+  │
+  ▼
+POST /chat/stream
+  │
+  ▼
+FastAPI
+  │
+  ▼
+get_agent(model)
+  │
+  ▼
+Luna or Terra
+```
+
+ChatOmni maintains separate cached agent configurations for the two models while sharing the same conversation persistence, memory system, tools, and LangGraph runtime.
+
+This means a user can switch models during a conversation without starting a completely separate chat.
+
+New conversations start with **GPT-5.6 Luna** by default.
+
+---
+
+# Task-Fit Model Suggestions
+
+ChatOmni also includes a lightweight model recommendation system.
+
+The recommendation system analyzes basic properties of the request, such as:
+
+- Request length
+- Code attachments
+- Code blocks
+- Multi-line technical content
+- Coding and debugging terminology
+- Architecture-related terminology
+- Analysis-oriented terminology
+
+This classification is performed locally using a lightweight heuristic and does **not require an additional language-model request**.
+
+The recommendation system does not automatically interrupt or redirect the user's request.
+
+The selected model first answers normally.
+
+After the response completes, ChatOmni may display a suggestion.
+
+Example:
+
+```text
+Selected model:
+GPT-5.6 Luna
+
+User:
+Analyze this backend architecture,
+identify concurrency issues,
+and propose a safer redesign.
+
+ChatOmni:
+[normal answer]
+
+Tip:
+This task may benefit from GPT-5.6 Terra.
+
+[Switch to Terra]
+```
+
+The reverse can also happen.
+
+```text
+Selected model:
+GPT-5.6 Terra
+
+User:
+What is 2 + 2?
+
+ChatOmni:
+4
+
+Tip:
+GPT-5.6 Luna may be faster and more cost-efficient
+for this type of request.
+
+[Switch to Luna]
+```
+
+The recommendation is therefore advisory rather than mandatory.
+
+The user always remains in control of the selected model.
 
 ---
 
 # Agent Architecture
 
 ChatOmni uses a LangChain agent instead of manually routing every request.
+
+The selected model powers the same underlying agent architecture.
 
 The agent determines whether it should:
 
@@ -62,28 +202,38 @@ The agent determines whether it should:
 Conceptually:
 
 ```text
-                        User
-                          │
-                          ▼
-                   ChatOmni Agent
-                          │
-        ┌─────────────────┼─────────────────┐
-        │                 │                 │
-        ▼                 ▼                 ▼
- Direct Response       Tool Calls        Memory
-                          │
-        ┌─────────────────┼───────────────────────────────┐
-        │                 │               │               │
-        ▼                 ▼               ▼               ▼
- Calculator          Web Search       Currency           RAG
-        │
-        ├────────────── Code Sandbox
-        │
-        └────────────── Code File Generator
+                         User
+                           │
+                           ▼
+                     Model Selector
+                           │
+               ┌───────────┴───────────┐
+               │                       │
+               ▼                       ▼
+         GPT-5.6 Luna            GPT-5.6 Terra
+               │                       │
+               └───────────┬───────────┘
+                           │
+                           ▼
+                    ChatOmni Agent
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+         ▼                 ▼                 ▼
+  Direct Response       Tool Calls        Memory
+                           │
+         ┌─────────────────┼───────────────────────────────┐
+         │                 │               │               │
+         ▼                 ▼               ▼               ▼
+  Calculator          Web Search       Currency           RAG
+         │
+         ├────────────── Code Sandbox
+         │
+         └────────────── Code File Generator
 
-                          │
-                          ▼
-                     PostgreSQL
+                           │
+                           ▼
+                      PostgreSQL
 ```
 
 This architecture allows new capabilities to be introduced as independent tools without redesigning the whole application.
@@ -338,7 +488,7 @@ This feature focuses on **image understanding**, not image generation.
 
 ChatOmni supports genuine model token streaming.
 
-Responses begin appearing while the language model is generating them instead of waiting for the complete answer.
+Responses begin appearing while the selected language model is generating them instead of waiting for the complete answer.
 
 ```text
 User
@@ -408,6 +558,10 @@ This allows ChatOmni to:
 
 Conversation history is separate from long-term user-profile memory.
 
+Switching between Luna and Terra does not require creating a new conversation.
+
+Both models can operate on the same persistent conversation state.
+
 ---
 
 # Automatic Chat Titles
@@ -476,6 +630,8 @@ Conversation State       Long-Term Memory
  Checkpointer
 ```
 
+The persistent memory system is shared across model selection, allowing Luna and Terra to access the same user context when appropriate.
+
 ---
 
 # Multi-Chat React Interface
@@ -500,6 +656,9 @@ The interface includes:
 - Code blocks
 - Code-copy buttons
 - Tool-use indicators
+- Luna / Terra model selector
+- Task-fit model suggestions
+- One-click model switching from recommendation hints
 
 Conceptually:
 
@@ -514,6 +673,7 @@ Conceptually:
 │ Chat 3          │                                   │
 │                 │                                   │
 │                 │   PDF / Image / Code Upload       │
+│                 │   Model: Luna ▼                   │
 └─────────────────┴───────────────────────────────────┘
 ```
 
@@ -915,6 +1075,8 @@ Create Code File
 Final Answer + Download
 ```
 
+The same tool architecture is available regardless of whether Luna or Terra is selected.
+
 ---
 
 # Current Technology Stack
@@ -922,7 +1084,10 @@ Final Answer + Download
 ## AI & Agent Framework
 
 - OpenAI API
+- GPT-5.6 Luna
 - GPT-5.6 Terra
+- Selectable model layer
+- Lightweight task-fit model recommendation
 - LangChain
 - LangGraph
 - Tool-calling agent architecture
@@ -995,6 +1160,7 @@ chatomni/
 │
 ├── api.py
 ├── main.py
+├── config.py
 ├── requirements.txt
 ├── .env
 ├── .env.example
@@ -1058,8 +1224,17 @@ A simplified view of the current system:
                             ▼
                     React + Vite UI
                             │
+                     Model Selector
+                            │
+               ┌────────────┴────────────┐
+               │                         │
+               ▼                         ▼
+         GPT-5.6 Luna              GPT-5.6 Terra
+               │                         │
+               └────────────┬────────────┘
+                            │
                             ▼
-                        FastAPI
+                         FastAPI
                             │
               ┌─────────────┴─────────────┐
               │                           │
@@ -1092,11 +1267,48 @@ A simplified view of the current system:
 ## General Conversation
 
 ```text
+Model:
+GPT-5.6 Luna
+
 User:
 Explain how neural networks work.
 
 ChatOmni:
 ...
+```
+
+## Complex Task
+
+```text
+Model:
+GPT-5.6 Terra
+
+User:
+Review this backend architecture,
+identify possible concurrency issues,
+and propose a safer design.
+
+ChatOmni:
+...
+```
+
+## Model Recommendation
+
+```text
+Model:
+GPT-5.6 Luna
+
+User:
+Analyze this large codebase and propose
+an architectural refactoring strategy.
+
+ChatOmni:
+...
+
+Tip:
+This task may benefit from GPT-5.6 Terra.
+
+[Switch to Terra]
 ```
 
 ## Mathematical Question
@@ -1192,11 +1404,71 @@ CODE   hello.py   Download
 
 The major conversational and tool-using capabilities of ChatOmni are now implemented.
 
-The remaining work primarily focuses on persistence improvements, source transparency, production hardening, deployment, and final polish.
+The remaining work primarily focuses on local distribution, multi-user architecture, source transparency, production hardening, deployment, and final polish.
 
 ---
 
-## 1. Generated File Persistence
+## 1. Full Docker Application Setup
+
+The Code Sandbox already uses Docker, but the complete ChatOmni application still requires containerization.
+
+The planned local Docker architecture includes:
+
+```text
+Frontend
+    +
+FastAPI
+    +
+PostgreSQL
+    +
+ChatOmni Agent
+    +
+Code Sandbox
+```
+
+The goal is to allow a user to clone ChatOmni and start the complete application without installing PostgreSQL or manually configuring each application component.
+
+A persistent Docker volume will be used for PostgreSQL data so conversation history and long-term memory survive container restarts.
+
+---
+
+## 2. Multi-User Authentication and Data Isolation
+
+The current local version is designed primarily as a single-user application.
+
+Before exposing the application as a shared public deployment, ChatOmni will receive a minimal multi-user authentication layer.
+
+The planned architecture includes:
+
+```text
+Register
+   +
+Login
+   +
+Logout
+   ↓
+Authenticated User
+   ↓
+Unique User ID
+   ↓
+Per-user data isolation
+```
+
+User-owned resources will be isolated, including:
+
+```text
+Conversation History
+Long-Term Memory
+Uploaded Files
+RAG State
+Generated Files
+```
+
+The goal is to preserve the simple local experience while making the deployed version safe for multiple independent users.
+
+---
+
+## 3. Generated File Persistence
 
 Generated download cards currently belong to the active frontend response.
 
@@ -1210,7 +1482,7 @@ without requiring the file to be generated again.
 
 ---
 
-## 2. Improved Citation System
+## 4. Improved Citation System
 
 The citation architecture will be expanded so different tools can expose their sources consistently.
 
@@ -1231,7 +1503,7 @@ The goal is to make externally retrieved information easier to verify directly f
 
 ---
 
-## 3. Code Sandbox Hardening
+## 5. Code Sandbox Hardening
 
 The current Docker sandbox provides multiple isolation layers, but further work is planned before treating arbitrary-code execution as a production service.
 
@@ -1256,9 +1528,9 @@ Remote sandbox workers
 
 ---
 
-## 4. Production Hardening
+## 6. Production Hardening
 
-Before deployment, the application will receive additional production-oriented improvements.
+Before public deployment, the application will receive additional production-oriented improvements.
 
 Planned work includes:
 
@@ -1275,31 +1547,9 @@ Planned work includes:
 
 ---
 
-## 5. Docker Production Setup
+## 7. AWS Deployment
 
-The Code Sandbox already uses Docker, but the complete ChatOmni application still requires production containerization.
-
-The production architecture may include:
-
-```text
-Frontend
-    +
-FastAPI
-    +
-PostgreSQL
-    +
-ChatOmni Agent
-    +
-Sandbox Worker
-```
-
-The final layout will keep arbitrary-code execution separated as much as possible from the main application service.
-
----
-
-## 6. AWS Deployment
-
-After production hardening, ChatOmni will be deployed on AWS.
+After multi-user isolation and production hardening, ChatOmni will be deployed on AWS.
 
 Deployment work will include:
 
@@ -1316,7 +1566,7 @@ The goal is to make ChatOmni accessible as a deployed web application while keep
 
 ---
 
-## 7. Optional UI Improvements
+## 8. Optional UI Improvements
 
 The current interface already supports the main required functionality.
 
@@ -1340,6 +1590,8 @@ The long-term goal of ChatOmni is to combine multiple AI capabilities into a sin
 
 ```text
 General Conversation
+        +
+Selectable AI Models
         +
 Current Web Information
         +
@@ -1385,6 +1637,16 @@ The architecture is intentionally modular so future tools can be added without r
 ## Implemented
 
 - [x] OpenAI LLM integration
+- [x] GPT-5.6 Luna support
+- [x] GPT-5.6 Terra support
+- [x] Manual Luna / Terra model selection
+- [x] Luna as the default model
+- [x] Per-request backend model selection
+- [x] Cached agent configurations for Luna and Terra
+- [x] Local task-complexity classification
+- [x] Task-fit model recommendation hints
+- [x] One-click model switching from recommendation hints
+- [x] Model switching without losing conversation continuity
 - [x] LangChain agent architecture
 - [x] LangGraph integration
 - [x] Turkish and English interaction
@@ -1437,13 +1699,20 @@ The architecture is intentionally modular so future tools can be added without r
 
 ## Planned
 
+- [ ] Full local Docker application setup
+- [ ] PostgreSQL Docker container
+- [ ] Persistent PostgreSQL Docker volume
+- [ ] Simple Docker-based local distribution
+- [ ] Multi-user authentication
+- [ ] Per-user conversation isolation
+- [ ] Per-user long-term memory isolation
+- [ ] Per-user upload and RAG isolation
 - [ ] Generated-file cards restored when old chats are reopened
 - [ ] Improved citation UI
 - [ ] Additional Code Sandbox hardening
 - [ ] Production logging and error handling
 - [ ] Upload/generated-file cleanup policies
 - [ ] Rate limiting
-- [ ] Full Docker production setup
 - [ ] AWS deployment
 - [ ] Final UI polish
 - [ ] Final README screenshots and documentation cleanup
