@@ -13,6 +13,7 @@ from src.tools import (
 from src.memory import get_memory_store
 from src.context import Context
 from src.checkpointer import get_checkpointer
+from functools import lru_cache
 
 SYSTEM_PROMPT =  """
 You are ChatOmni, a helpful AI assistant.
@@ -169,15 +170,27 @@ Be clear, helpful, and conversational.
 checkpointer = get_checkpointer()
 long_term_memory = get_memory_store()
 
-def get_agent():
-    model = get_model()
+@lru_cache(maxsize=2)
+def get_agent(model_name: str = "luna"):
+    model = get_model(
+        model_name
+    )
 
     # Create ChatOmni agent
     return create_agent(
         model=model,
-        tools=[calculator, web_search_tool, rag_pdf, currency_converter, save_memory, get_saved_memories, code_sandbox, create_code_file],
+        tools=[
+            calculator,
+            web_search_tool,
+            rag_pdf,
+            currency_converter,
+            save_memory,
+            get_saved_memories,
+            code_sandbox,
+            create_code_file,
+        ],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
         store=long_term_memory,
-        context_schema=Context
+        context_schema=Context,
     )

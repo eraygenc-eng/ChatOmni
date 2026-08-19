@@ -2,6 +2,7 @@ import json
 import base64
 import uuid
 from pathlib import Path
+from typing import Literal
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
@@ -95,7 +96,7 @@ app.add_middleware(
 )
 
 
-agent = get_agent()
+agent = get_agent("luna")
 checkpointer = get_checkpointer()
 
 
@@ -110,6 +111,142 @@ class ChatRequest(BaseModel):
     image_id: str | None = None
     chat_id: str = "current_chat"
     code_id: str | None = None
+    model: Literal["luna", "terra"] = "luna"
+
+COMPLEX_TASK_TERMS = {
+    "advanced coding",
+    "architecture",
+    "system design",
+    "refactor",
+    "debug",
+    "deep analysis",
+    "analyze deeply",
+    "step by step implementation",
+    "from scratch",
+    "build the whole",
+    "build a full",
+    "implement the whole",
+    "implement a full",
+    "optimize",
+    "trade-off",
+    "tradeoff",
+
+    # Turkish requests can still be classified.
+    "mimari",
+    "refaktör",
+    "hata ayıkla",
+    "debug et",
+    "detaylı analiz",
+    "derin analiz",
+    "baştan sona",
+    "projeyi yap",
+    "tam proje",
+    "optimize et",
+}
+
+
+def classify_task_complexity(
+    request: ChatRequest
+) -> str:
+
+    message = (
+        request.message
+        .strip()
+        .lower()
+    )
+
+    # Uploaded source code is usually a stronger
+    # signal that the task may benefit from Terra.
+    if request.code_id:
+        return "complex"
+
+    score = 0
+
+    if len(message) >= 500:
+        score += 2
+
+    elif len(message) >= 280:
+        score += 1
+
+    if "```" in message:
+        score += 2
+
+    if message.count("\n") >= 6:
+        score += 1
+
+    matched_terms = sum(
+        1
+        for term in COMPLEX_TASK_TERMS
+        if term in message
+    )
+
+    score += min(
+        matched_terms,
+        2,
+    )
+
+    if score >= 2:
+        return "complex"
+
+    word_count = len(
+        message.split()
+    )
+
+    is_pdf_request = (
+        message.startswith(
+            '[a pdf named "'
+        )
+    )
+
+    if (
+        not request.image_id
+        and not request.code_id
+        and not is_pdf_request
+        and len(message) <= 140
+        and word_count <= 18
+        and score == 0
+    ):
+        return "simple"
+
+    return "balanced"
+
+
+def get_model_fit_hint(
+    request: ChatRequest
+):
+    complexity = (
+        classify_task_complexity(
+            request
+        )
+    )
+
+    if (
+        request.model == "luna"
+        and complexity == "complex"
+    ):
+        return {
+            "recommended_model": "terra",
+
+            "message": (
+                "Terra may produce a stronger answer for complex tasks "
+                "like advanced coding, debugging, architecture, and deep analysis."
+            ),
+        }
+
+    if (
+        request.model == "terra"
+        and complexity == "simple"
+    ):
+        return {
+            "recommended_model": "luna",
+
+            "message": (
+                "Luna is faster and more cost-efficient for simple "
+                "questions and everyday tasks."
+            ),
+        }
+
+    return None
 
 def get_chat_config(
     chat_id: str
@@ -1084,14 +1221,19 @@ def chat(
         request.chat_id,
         request.message
     )
-        
+
+    # Kullanıcının seçtiği modeli kullan
+    request_agent = get_agent(
+        request.model
+    )
+
     user_message = (
         build_user_message(
             request
         )
     )
 
-    result = agent.invoke(
+    result = request_agent.invoke(
         {
             "messages": [
                 user_message
@@ -1106,7 +1248,13 @@ def chat(
     )
 
     return {
-        "response": response.text
+        "response": response.text,
+
+        "model_hint": (
+            get_model_fit_hint(
+                request
+            )
+        ),
     }
 
 
@@ -1128,6 +1276,10 @@ def chat_stream(
         request.message
     )
 
+    request_agent = get_agent(
+        request.model
+    )   
+
     def generate():
 
         user_message = (
@@ -1143,7 +1295,7 @@ def chat_stream(
         final_response = None
 
 
-        for chunk in agent.stream(
+        for chunk in request_agent.stream(
             {
                 "messages": [user_message]
             },
@@ -1223,7 +1375,7 @@ def chat_stream(
                         messages[-1]
                     )
 
-                                        # GENERATED FILE
+                    # GENERATED FILE
                     if isinstance(
                         message,
                         ToolMessage,
@@ -1365,6 +1517,25 @@ def chat_stream(
                     create_stream_event(
                         "tool",
                         name="Web",
+                    )
+                )
+
+
+        # MODEL FIT HINT
+        if final_response is not None:
+
+            model_hint = (
+                get_model_fit_hint(
+                    request
+                )
+            )
+
+            if model_hint:
+
+                yield (
+                    create_stream_event(
+                        "model_hint",
+                        **model_hint,
                     )
                 )
 
