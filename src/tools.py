@@ -7,6 +7,9 @@ import uuid
 import json
 from src.context import Context
 from src.code_sandbox import run_code_sandbox
+import re
+from src.project_files import get_project_files
+from src.project_retrieval import retrieve_project_context
 
 
 GENERATED_CODE_DIR = (
@@ -41,6 +44,267 @@ ALLOWED_GENERATED_EXTENSIONS = {
 MAX_GENERATED_FILE_SIZE = (
     200 * 1024
 )
+
+PROJECTS_DATA_DIR = Path(
+    "projects_data"
+)
+
+PROJECT_TEXT_EXTENSIONS = {
+    ".py",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".java",
+    ".c",
+    ".h",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".cs",
+    ".go",
+    ".rs",
+    ".php",
+    ".rb",
+    ".swift",
+    ".kt",
+    ".kts",
+    ".html",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".json",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".env",
+    ".md",
+    ".txt",
+    ".sql",
+    ".sh",
+    ".bat",
+    ".ps1",
+    ".dockerfile",
+}
+
+MAX_PROJECT_FILE_READ_SIZE = (
+    300 * 1024
+)
+
+MAX_PROJECT_SEARCH_RESULTS = 6
+
+
+def get_project_search_terms(
+    question: str
+):
+
+    words = re.findall(
+        r"[A-Za-z0-9_./\\-]+",
+        question.lower(),
+    )
+
+    stop_words = {
+        "the",
+        "a",
+        "an",
+        "is",
+        "are",
+        "in",
+        "on",
+        "of",
+        "to",
+        "for",
+        "and",
+        "or",
+        "this",
+        "that",
+        "with",
+        "from",
+        "my",
+        "project",
+        "code",
+        "file",
+        "files",
+
+        "bu",
+        "şu",
+        "bir",
+        "ve",
+        "veya",
+        "ile",
+        "için",
+        "projede",
+        "proje",
+        "kod",
+        "dosya",
+        "dosyada",
+        "nerede",
+        "nasıl",
+        "neden",
+    }
+
+    return {
+        word
+        for word in words
+        if (
+            len(word) >= 2
+            and word not in stop_words
+        )
+    }
+
+
+def score_project_file(
+    file_data: dict,
+    search_terms: set[str],
+) -> int:
+
+    relative_path = (
+        file_data["relative_path"]
+        .lower()
+    )
+
+    file_name = (
+        file_data["file_name"]
+        .lower()
+    )
+
+    score = 0
+
+    for term in search_terms:
+
+        if term == file_name:
+            score += 20
+
+        if term in file_name:
+            score += 10
+
+        if term in relative_path:
+            score += 5
+
+    return score
+
+
+def read_project_text_file(
+    project_id: str,
+    relative_path: str,
+):
+
+    project_root = (
+        PROJECTS_DATA_DIR /
+        project_id
+    ).resolve()
+
+    file_path = (
+        project_root /
+        relative_path
+    ).resolve()
+
+    try:
+        file_path.relative_to(
+            project_root
+        )
+
+    except ValueError:
+        return None
+
+    if (
+        not file_path.exists()
+        or
+        not file_path.is_file()
+    ):
+        return None
+
+    if (
+        file_path.stat().st_size
+        >
+        MAX_PROJECT_FILE_READ_SIZE
+    ):
+        return None
+
+    try:
+
+        return file_path.read_text(
+            encoding="utf-8"
+        )
+
+    except UnicodeDecodeError:
+
+        try:
+
+            return file_path.read_text(
+                encoding="utf-8-sig"
+            )
+
+        except UnicodeDecodeError:
+
+            return None
+        
+
+@tool
+def project_search(
+    question: str,
+    runtime: ToolRuntime[Context],
+    mode: Literal[
+        "targeted",
+        "scoped",
+        "deep",
+    ] = "targeted",
+    target: str = "",
+    batch: int = 0,
+) -> str:
+    """
+    Search and inspect files from the active ChatOmni Project.
+
+    Modes:
+
+    targeted:
+        Use for a specific file or a focused project question.
+        If the user explicitly names a file, only that file is searched.
+
+    scoped:
+        Use when the user asks about a specific folder or module.
+
+    deep:
+        Use when the user asks for a deep, complete, or comprehensive
+        review of the whole project or uploaded ZIP.
+
+    For deep reviews, results may be returned in multiple batches.
+    When has_more is true, call this tool again using next_batch
+    until every batch has been inspected.
+
+    Never ask the user for a project ID.
+
+    Args:
+        question: The user's project-related request.
+        mode: Retrieval mode.
+        target: File path, filename, folder, or module when relevant.
+        batch: Batch number for multi-batch deep reviews.
+    """
+
+    project_id = (
+        runtime.context.project_id
+    )
+
+    if not project_id:
+
+        return (
+            "No active project is associated "
+            "with this conversation."
+        )
+
+    return retrieve_project_context(
+        project_id=project_id,
+        question=question,
+        mode=mode,
+        target=target,
+        batch=batch,
+    )
 
 
 @tool

@@ -1,7 +1,11 @@
 import json
 import base64
 import uuid
-from pathlib import Path
+import shutil
+import stat
+import zipfile
+
+from pathlib import Path, PurePosixPath
 from typing import Literal
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +20,9 @@ from langchain.messages import (
 
 from src.titles import create_title_if_needed
 
-from src.conversations import (ensure_chat, get_chats, delete_chat)
+from src.conversations import (ensure_chat, get_chats, delete_chat, get_project_chats)
+from src.projects import (create_project, get_projects, get_project, delete_project)
+from src.project_files import (replace_project_files, get_project_files, delete_project_files)
 
 from src.checkpointer import get_checkpointer
 from src.agent import get_agent
@@ -52,6 +58,15 @@ CODE_UPLOAD_DIR.mkdir(
     exist_ok=True
 )
 
+PROJECTS_DATA_DIR = Path(
+    "projects_data"
+)
+
+PROJECTS_DATA_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
+
 ALLOWED_IMAGE_TYPES = {
     ".png": "image/png",
     ".jpg": "image/jpeg",
@@ -84,6 +99,16 @@ MAX_CODE_FILE_SIZE = (
     200 * 1024
 )
 
+MAX_PROJECT_ZIP_SIZE = (
+    50 * 1024 * 1024
+)
+
+MAX_PROJECT_EXTRACTED_SIZE = (
+    200 * 1024 * 1024
+)
+
+MAX_PROJECT_FILE_COUNT = 5000
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -100,18 +125,13 @@ agent = get_agent("luna")
 checkpointer = get_checkpointer()
 
 
-
-context = Context(
-    user_id="local_user"
-)
-
-
 class ChatRequest(BaseModel):
     message: str
     image_id: str | None = None
     chat_id: str = "current_chat"
     code_id: str | None = None
     model: Literal["luna", "terra"] = "luna"
+    project_id: str | None = None
 
 COMPLEX_TASK_TERMS = {
     "advanced coding",
@@ -143,6 +163,9 @@ COMPLEX_TASK_TERMS = {
     "tam proje",
     "optimize et",
 }
+
+class ProjectCreateRequest(BaseModel):
+    name: str
 
 
 def classify_task_complexity(
@@ -712,6 +735,147 @@ def get_created_file_data(
             ),
     }
 
+def extract_project_zip_safely(
+    zip_path: Path,
+    destination: Path,
+):
+
+    extracted_files = []
+
+    destination.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    destination_root = (
+        destination.resolve()
+    )
+
+    with zipfile.ZipFile(
+        zip_path,
+        "r",
+    ) as archive:
+
+        members = archive.infolist()
+
+        file_members = [
+            member
+            for member in members
+            if not member.is_dir()
+        ]
+
+        if (
+            len(file_members)
+            >
+            MAX_PROJECT_FILE_COUNT
+        ):
+            raise ValueError(
+                "ZIP contains too many files."
+            )
+
+        total_size = sum(
+            member.file_size
+            for member in file_members
+        )
+
+        if (
+            total_size
+            >
+            MAX_PROJECT_EXTRACTED_SIZE
+        ):
+            raise ValueError(
+                "Extracted project is too large."
+            )
+
+        for member in file_members:
+
+            mode = (
+                member.external_attr
+                >> 16
+            )
+
+            if stat.S_ISLNK(mode):
+                raise ValueError(
+                    "Symbolic links are not allowed in project ZIP files."
+                )
+
+            normalized_path = PurePosixPath(
+                member.filename.replace(
+                    "\\",
+                    "/",
+                )
+            )
+
+            if (
+                normalized_path.is_absolute()
+                or
+                ".." in normalized_path.parts
+            ):
+                raise ValueError(
+                    "Unsafe path found inside ZIP."
+                )
+
+            relative_path = Path(
+                *normalized_path.parts
+            )
+
+            target_path = (
+                destination /
+                relative_path
+            ).resolve()
+
+            try:
+                target_path.relative_to(
+                    destination_root
+                )
+            except ValueError:
+                raise ValueError(
+                    "ZIP tried to write outside the project directory."
+                )
+
+            target_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            with archive.open(
+                member,
+                "r",
+            ) as source:
+
+                with target_path.open(
+                    "wb"
+                ) as output:
+
+                    shutil.copyfileobj(
+                        source,
+                        output,
+                    )
+
+            extracted_files.append(
+                {
+                    "file_id":
+                        str(uuid.uuid4()),
+
+                    "relative_path":
+                        relative_path
+                        .as_posix(),
+
+                    "file_name":
+                        relative_path.name,
+
+                    "extension":
+                        relative_path
+                        .suffix
+                        .lower(),
+
+                    "size_bytes":
+                        member.file_size,
+                }
+            )
+
+    return extracted_files
+
 
 @app.get("/health")
 def health_check():
@@ -720,6 +884,294 @@ def health_check():
         "status": "ok"
     }
 
+@app.get("/projects")
+def list_projects():
+
+    return {
+        "projects":
+            get_projects()
+    }
+
+
+@app.post("/projects")
+def add_project(
+    request: ProjectCreateRequest
+):
+
+    project = create_project(
+        request.name
+    )
+
+    return {
+        "project":
+            project
+    }
+
+
+@app.get(
+    "/projects/{project_id}/chats"
+)
+def list_project_chats(
+    project_id: str
+):
+
+    project = get_project(
+        project_id
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project was not found."
+        )
+
+    return {
+        "project":
+            project,
+
+        "chats":
+            get_project_chats(
+                project_id
+            )
+    }
+
+
+@app.post(
+    "/projects/{project_id}/upload-zip"
+)
+async def upload_project_zip(
+    project_id: str,
+    file: UploadFile = File(...),
+):
+
+    project = get_project(
+        project_id
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project was not found.",
+        )
+
+    original_name = Path(
+        file.filename
+        or
+        "project.zip"
+    ).name
+
+    if (
+        Path(original_name)
+        .suffix
+        .lower()
+        != ".zip"
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Project file must be a ZIP archive.",
+        )
+
+    zip_bytes = await file.read()
+
+    if not zip_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded ZIP is empty.",
+        )
+
+    if (
+        len(zip_bytes)
+        >
+        MAX_PROJECT_ZIP_SIZE
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="ZIP file is too large.",
+        )
+
+    project_directory = (
+        PROJECTS_DATA_DIR /
+        project_id
+    )
+
+    temp_directory = (
+        PROJECTS_DATA_DIR /
+        f"{project_id}_temp"
+    )
+
+    temp_zip_path = (
+        PROJECTS_DATA_DIR /
+        f"{project_id}.zip"
+    )
+
+    if temp_directory.exists():
+        shutil.rmtree(
+            temp_directory
+        )
+
+    try:
+
+        temp_zip_path.write_bytes(
+            zip_bytes
+        )
+
+        extracted_files = (
+            extract_project_zip_safely(
+                temp_zip_path,
+                temp_directory,
+            )
+        )
+
+        if project_directory.exists():
+            shutil.rmtree(
+                project_directory
+            )
+
+        temp_directory.rename(
+            project_directory
+        )
+
+        replace_project_files(
+            project_id,
+            extracted_files,
+        )
+
+    except zipfile.BadZipFile:
+
+        if temp_directory.exists():
+            shutil.rmtree(
+                temp_directory
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid ZIP archive.",
+        )
+
+    except ValueError as error:
+
+        if temp_directory.exists():
+            shutil.rmtree(
+                temp_directory
+            )
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(error),
+        )
+
+    finally:
+
+        if temp_zip_path.exists():
+            temp_zip_path.unlink()
+
+    return {
+        "status": "ok",
+        "project_id": project_id,
+        "project_name": project["name"],
+        "file_count": len(
+            extracted_files
+        ),
+    }
+
+
+@app.get(
+    "/projects/{project_id}/files"
+)
+def list_project_files(
+    project_id: str
+):
+
+    project = get_project(
+        project_id
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project was not found.",
+        )
+
+    return {
+        "project":
+            project,
+
+        "files":
+            get_project_files(
+                project_id
+            ),
+    }
+
+
+@app.delete(
+    "/projects/{project_id}"
+)
+def remove_project(
+    project_id: str
+):
+
+    project = get_project(
+        project_id
+    )
+
+    if not project:
+        raise HTTPException(
+            status_code=404,
+            detail="Project was not found.",
+        )
+
+    # Get all chats belonging to this project.
+    project_chats = (
+        get_project_chats(
+            project_id
+        )
+    )
+
+    # Delete LangGraph conversation history
+    # and chat metadata for every project chat.
+    for chat in project_chats:
+
+        chat_id = (
+            chat["chat_id"]
+        )
+
+        checkpointer.delete_thread(
+            chat_id
+        )
+
+        delete_chat(
+            chat_id
+        )
+
+    # Delete the project's stored files.
+    project_directory = (
+        PROJECTS_DATA_DIR /
+        project_id
+    )
+
+    if (
+        project_directory.exists()
+    ):
+        shutil.rmtree(
+            project_directory
+        )
+
+    # Delete file metadata.
+    delete_project_files(
+        project_id
+    )
+
+    # Finally delete the project itself.
+    delete_project(
+        project_id
+    )
+
+    return {
+        "status": "ok",
+        "project_id": project_id,
+        "deleted_chats":
+            len(project_chats),
+    }
 
 
 @app.get("/chats")
@@ -1214,7 +1666,8 @@ def chat(
     )
 
     ensure_chat(
-        request.chat_id
+        request.chat_id,
+        request.project_id
     )
 
     create_title_if_needed(
@@ -1222,9 +1675,14 @@ def chat(
         request.message
     )
 
-    # Kullanıcının seçtiği modeli kullan
+    # Use the model selected by the user
     request_agent = get_agent(
         request.model
+    )
+
+    request_context = Context(
+        user_id="local_user",
+        project_id=request.project_id,
     )
 
     user_message = (
@@ -1240,7 +1698,7 @@ def chat(
             ]
         },
         config=config,
-        context=context,
+        context=request_context,
     )
 
     response = (
@@ -1268,7 +1726,8 @@ def chat_stream(
     )
 
     ensure_chat(
-        request.chat_id
+        request.chat_id,
+        request.project_id
     )
 
     create_title_if_needed(
@@ -1278,7 +1737,12 @@ def chat_stream(
 
     request_agent = get_agent(
         request.model
-    )   
+    )
+
+    request_context = Context(
+        user_id="local_user",
+        project_id=request.project_id,
+    )
 
     def generate():
 
@@ -1300,7 +1764,7 @@ def chat_stream(
                 "messages": [user_message]
             },
             config=config,
-            context=context,
+            context=request_context,
             stream_mode=[
                 "messages",
                 "updates",

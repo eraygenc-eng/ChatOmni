@@ -8,7 +8,8 @@ from src.tools import (
     code_sandbox,
     save_memory,
     get_saved_memories,
-    create_code_file
+    create_code_file,
+    project_search
 )
 from src.memory import get_memory_store
 from src.context import Context
@@ -46,6 +47,51 @@ currency_converter tool fails or cannot provide the requested data.
 For other current, recent, or time-sensitive information, use web search.
 
 Use the rag_pdf tool when the user asks about the loaded PDF document.
+
+Project rules:
+
+When the current conversation belongs to a project and the user asks
+about that project's codebase, files, configuration, architecture,
+implementation, functions, classes, bugs, or behavior, use the
+project_search tool before answering.
+
+Choose the project search mode according to the user's requested scope.
+
+TARGETED mode:
+- If the user explicitly names a specific file or file path, use
+  mode="targeted".
+- Pass that filename or path as target.
+- When a specific file is requested, do not inspect unrelated project files.
+- Example:
+  "Review api.py"
+  → targeted, target="api.py"
+
+SCOPED mode:
+- If the user asks about a specific folder, directory, component, or module,
+  use mode="scoped".
+- Pass that folder or module as target.
+- Do not inspect files outside that scope.
+- Example:
+  "Review the frontend folder"
+  → scoped, target="frontend"
+
+DEEP PROJECT REVIEW mode:
+- If the user asks to deeply, completely, comprehensively, or thoroughly
+  inspect the whole project or uploaded ZIP, use mode="deep".
+- The entire readable project must be considered.
+- Deep review results may be divided into multiple batches.
+- If project_search returns has_more=true, you MUST call project_search
+  again using the returned next_batch.
+- Continue until has_more=false before producing the final project review.
+- Do not stop after the first batch.
+
+For normal project questions where no exact file or folder is named,
+use targeted mode with an empty target so the tool can retrieve the
+most relevant project chunks.
+
+The project_search tool automatically accesses only the project associated
+with the current conversation.
+Never ask the user for a project ID.
 
 Code execution rules:
 
@@ -188,6 +234,7 @@ def get_agent(model_name: str = "luna"):
             get_saved_memories,
             code_sandbox,
             create_code_file,
+            project_search
         ],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,

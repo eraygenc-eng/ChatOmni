@@ -37,9 +37,17 @@ def setup_conversations():
                 """
             )
 
+            cursor.execute(
+                """
+                ALTER TABLE chat_conversations
+                ADD COLUMN IF NOT EXISTS project_id TEXT
+                """
+            )
+
 # Adds a new chat or updates its last used time.
 def ensure_chat(
-    chat_id: str
+    chat_id: str,
+    project_id: str | None = None
 ):
     # Cleans chat_id and uses "current_chat" if it is empty.
     chat_id = (
@@ -56,9 +64,11 @@ def ensure_chat(
                 """
                 INSERT INTO chat_conversations (
                     chat_id,
-                    title
+                    title,
+                    project_id
                 )
                 VALUES (
+                    %s,
                     %s,
                     %s
                 )
@@ -69,6 +79,7 @@ def ensure_chat(
                 (
                     chat_id,
                     "New Chat",
+                    project_id
                 ),
             )
 
@@ -188,6 +199,7 @@ def get_chats():
                     created_at,
                     updated_at
                 FROM chat_conversations
+                WHERE project_id IS NULL
                 ORDER BY updated_at DESC
                 """
             )
@@ -212,6 +224,46 @@ def get_chats():
 
         for row in rows
     ]      
- 
+
+def get_project_chats(
+    project_id: str
+):
+
+    with get_connection() as connection:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                SELECT
+                    chat_id,
+                    title,
+                    project_id,
+                    created_at,
+                    updated_at
+                FROM chat_conversations
+                WHERE project_id = %s
+                ORDER BY updated_at DESC
+                """,
+                (
+                    project_id,
+                ),
+            )
+
+            rows = cursor.fetchall()
+
+    return [
+        {
+            "chat_id": row["chat_id"],
+            "title": row["title"],
+            "project_id": row["project_id"],
+            "created_at": row["created_at"].isoformat(),
+            "updated_at": row["updated_at"].isoformat(),
+        }
+
+        for row in rows
+    ]
+
+
 # Makes sure the chat table is ready when the app starts.
 setup_conversations()
