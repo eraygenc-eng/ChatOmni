@@ -83,3 +83,7 @@ desktop.ini
 ~*
 
 uploads/
+
+# Node.js dependencies
+node_modules/
+frontend/node_modules/

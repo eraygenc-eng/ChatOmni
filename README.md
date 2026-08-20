@@ -331,7 +331,9 @@ from rag_pdf_assistant import RAGPipeline
 
 The RAG functionality is therefore maintained as an independently reusable project while being available to ChatOmni as one of its tools.
 
-The package must be installed in the active Python environment before RAG functionality can be used.
+When ChatOmni runs through Docker, the reusable `rag_pdf_assistant` package is automatically installed into the backend image during the Docker build process.
+
+When running ChatOmni directly on the host instead of Docker, the package must be installed in the active Python environment before RAG functionality can be used.
 
 The RAG system is exposed to the ChatOmni agent as:
 
@@ -1149,11 +1151,22 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 - .NET SDK
 - Go
 
+## Containerization & Local Runtime
+
+- Docker Compose
+- Dockerized FastAPI backend
+- React production build served through Nginx
+- PostgreSQL 18 Alpine container
+- Persistent PostgreSQL Docker volume
+- Persistent Hugging Face model cache
+- Host-mounted upload storage
+- Docker socket integration for isolated code sandbox containers
+
 ---
 
 # Current Project Structure
 
-The project is divided into frontend, backend, persistence, agent, RAG integration, and sandbox components.
+The project is divided into frontend, backend, persistence, agent, RAG integration, containerization, and sandbox components.
 
 ```text
 chatomni/
@@ -1162,11 +1175,16 @@ chatomni/
 ├── main.py
 ├── config.py
 ├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── .dockerignore
 ├── .env
 ├── .env.example
 ├── .gitignore
 │
 ├── frontend/
+│   ├── Dockerfile
+│   ├── .dockerignore
 │   ├── package.json
 │   ├── package-lock.json
 │   └── src/
@@ -1210,7 +1228,162 @@ chatomni/
     └── generated/
 ```
 
-The separately developed `rag_pdf_assistant` package is installed into the same Python environment and imported through `RAGPipeline`.
+The root `Dockerfile` builds the FastAPI backend image.
+
+The frontend `Dockerfile` builds the React application and serves the production build through Nginx.
+
+`docker-compose.yml` orchestrates the frontend, backend, and PostgreSQL services while keeping PostgreSQL data and Hugging Face model downloads persistent across container recreation.
+
+The separately developed `rag_pdf_assistant` package is installed into the backend Docker image and imported through `RAGPipeline`.
+
+---
+
+# Dockerized Local Application
+
+ChatOmni can now run as a complete local Docker application.
+
+The Docker setup includes:
+
+```text
+Browser
+   │
+   ▼
+React Production Build
+   │
+   ▼
+Nginx
+   │
+   ▼
+FastAPI
+   │
+   ├────────────── PostgreSQL
+   │
+   ├────────────── RAG / Hugging Face Cache
+   │
+   └────────────── Docker Code Sandbox
+```
+
+The main application services are orchestrated with Docker Compose:
+
+```text
+chatomni-frontend
+chatomni-backend
+chatomni-postgres
+```
+
+PostgreSQL uses a persistent Docker volume so conversation history and long-term memory survive container restarts.
+
+Uploaded and generated files are mounted from the local `uploads/` directory.
+
+The backend also mounts the Docker socket so the existing Code Sandbox can create short-lived isolated execution containers when code execution is requested.
+
+## Local Docker Requirements
+
+To run the complete local version, the host machine needs:
+
+- Docker Desktop or another compatible Docker Engine
+- Docker Compose
+- Git
+- Internet access during the initial image build
+- An OpenAI API key
+
+A separate local PostgreSQL installation is not required when using Docker Compose.
+
+## Environment Configuration
+
+Copy:
+
+```text
+.env.example
+```
+
+to:
+
+```text
+.env
+```
+
+and provide the required values.
+
+The Docker Compose setup uses `POSTGRES_PASSWORD` to initialize the PostgreSQL container.
+
+When the application is started through Docker Compose, the backend receives an internal PostgreSQL connection string that points to the Docker service name:
+
+```text
+postgres
+```
+
+instead of `localhost`.
+
+The existing host-based `POSTGRES_URI` can still be kept for running ChatOmni directly outside Docker.
+
+## Build Code Sandbox Images
+
+The Code Sandbox uses dedicated Docker images for each supported language.
+
+Build them once from the project root:
+
+```bash
+docker build -t chatomni-python-sandbox ./sandbox/python
+docker build -t chatomni-javascript-sandbox ./sandbox/javascript
+docker build -t chatomni-java-sandbox ./sandbox/java
+docker build -t chatomni-gcc-sandbox ./sandbox/gcc
+docker build -t chatomni-csharp-sandbox ./sandbox/csharp
+docker build -t chatomni-go-sandbox ./sandbox/go
+```
+
+These images are not long-running services.
+
+They are used as templates for temporary containers created only when ChatOmni executes code.
+
+## Start ChatOmni
+
+From the project root:
+
+```bash
+docker compose up --build
+```
+
+After startup:
+
+```text
+Frontend:
+http://localhost:5173
+
+Backend:
+http://localhost:8000
+
+Health Check:
+http://localhost:8000/health
+```
+
+The first build may take longer because backend dependencies and model-related components need to be downloaded.
+
+The Hugging Face cache is stored in a persistent Docker volume so required model files do not need to be downloaded again after every container recreation.
+
+## Stop ChatOmni
+
+When running Docker Compose in the foreground, press:
+
+```text
+Ctrl + C
+```
+
+or run:
+
+```bash
+docker compose down
+```
+
+The PostgreSQL volume remains intact, so saved conversations and long-term memory remain available the next time the application starts.
+
+To start the already-built application again:
+
+```bash
+docker compose up
+```
+
+> Removing Docker volumes, for example with `docker compose down -v`, also removes the Docker-managed PostgreSQL data. Use that command only when intentionally resetting the Docker database.
 
 ---
 
@@ -1222,16 +1395,10 @@ A simplified view of the current system:
                          Browser
                             │
                             ▼
-                    React + Vite UI
+                  React Production Build
                             │
-                     Model Selector
-                            │
-               ┌────────────┴────────────┐
-               │                         │
-               ▼                         ▼
-         GPT-5.6 Luna              GPT-5.6 Terra
-               │                         │
-               └────────────┬────────────┘
+                            ▼
+                          Nginx
                             │
                             ▼
                          FastAPI
@@ -1251,14 +1418,27 @@ A simplified view of the current system:
               ▼
         LangGraph Runtime
               │
-       ┌──────┴──────┐
-       │             │
-       ▼             ▼
- PostgreSQL      Code Sandbox
-                       │
-                       ▼
-                    Docker
+       ┌──────┴───────────────┐
+       │                      │
+       ▼                      ▼
+ PostgreSQL Container    Docker Socket
+       │                      │
+       ▼                      ▼
+Persistent Volume      Temporary Sandbox
+                       Containers
 ```
+
+Model selection remains part of the React interface.
+
+Each request can use either:
+
+```text
+GPT-5.6 Luna
+      or
+GPT-5.6 Terra
+```
+
+while sharing the same persistent conversation state, memory system, tools, and backend infrastructure.
 
 ---
 
@@ -1404,31 +1584,48 @@ CODE   hello.py   Download
 
 The major conversational and tool-using capabilities of ChatOmni are now implemented.
 
-The remaining work primarily focuses on local distribution, multi-user architecture, source transparency, production hardening, deployment, and final polish.
+The remaining work primarily focuses on multi-user architecture, source transparency, production hardening, deployment, and final polish.
 
 ---
 
-## 1. Full Docker Application Setup
+## 1. Full Docker Application Setup — Implemented
 
-The Code Sandbox already uses Docker, but the complete ChatOmni application still requires containerization.
+The complete local ChatOmni application is now containerized.
 
-The planned local Docker architecture includes:
+The current local Docker architecture includes:
 
 ```text
-Frontend
-    +
-FastAPI
-    +
+React + Nginx Frontend
+        +
+FastAPI Backend
+        +
 PostgreSQL
-    +
+        +
 ChatOmni Agent
-    +
+        +
+RAG Dependencies
+        +
 Code Sandbox
 ```
 
-The goal is to allow a user to clone ChatOmni and start the complete application without installing PostgreSQL or manually configuring each application component.
+Docker Compose starts the frontend, backend, and PostgreSQL services together.
 
-A persistent Docker volume will be used for PostgreSQL data so conversation history and long-term memory survive container restarts.
+The PostgreSQL container uses a persistent Docker volume so conversation history and long-term memory survive container restarts.
+
+Uploaded and generated files are mounted from the host, and the Hugging Face cache is also persisted between container recreation.
+
+The FastAPI container can access the host Docker daemon through the Docker socket so ChatOmni can continue creating short-lived isolated sandbox containers for Python, JavaScript, Java, C, C++, C#, and Go execution.
+
+The complete Dockerized application has been tested with:
+
+- General conversation
+- Calculator tool usage
+- Code Sandbox execution
+- PDF upload and RAG
+- Image upload and understanding
+- Persistent conversation history after stopping and restarting Docker Compose
+
+The local version can now be shared as a repository-based Docker setup without requiring a separate PostgreSQL installation on the target machine.
 
 ---
 
@@ -1696,13 +1893,20 @@ The architecture is intentionally modular so future tools can be added without r
 - [x] Code file generation
 - [x] Generated source-code downloads
 - [x] Save-As file selection in supported browsers
+- [x] Full local Docker application setup
+- [x] Dockerized FastAPI backend
+- [x] React production build served through Nginx
+- [x] Docker Compose orchestration
+- [x] PostgreSQL Docker container
+- [x] Persistent PostgreSQL Docker volume
+- [x] Persistent Hugging Face Docker cache
+- [x] Host-mounted upload/generated-file storage
+- [x] Docker socket integration for Code Sandbox execution
+- [x] Simple Docker-based local distribution
+- [x] Docker restart persistence verification
 
 ## Planned
 
-- [ ] Full local Docker application setup
-- [ ] PostgreSQL Docker container
-- [ ] Persistent PostgreSQL Docker volume
-- [ ] Simple Docker-based local distribution
 - [ ] Multi-user authentication
 - [ ] Per-user conversation isolation
 - [ ] Per-user long-term memory isolation

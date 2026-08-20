@@ -1,0 +1,38 @@
+# Python cache and virtual environments
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# Git files
+.git/
+.gitignore
+
+# Frontend dependencies and build output
+frontend/node_modules/
+frontend/dist/
+
+# IDE configuration
+.vscode/
+.idea/
+
+# Runtime user-generated files
+uploads/*
+!uploads/.gitkeep
+
+# Python tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Operating system files
+.DS_Store
+Thumbs.db

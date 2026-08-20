@@ -1,0 +1,92 @@
+services:
+
+  # PostgreSQL database used by LangGraph
+  # for conversation checkpoints and long-term memory
+  postgres:
+    image: postgres:18-alpine
+    container_name: chatomni-postgres
+
+    environment:
+      POSTGRES_DB: chatomni
+      POSTGRES_USER: chatomni_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatomni_local_password}
+
+    volumes:
+      - postgres-data:/var/lib/postgresql
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U chatomni_user -d chatomni"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    restart: unless-stopped
+
+
+  # FastAPI backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: chatomni-backend
+
+    env_file:
+      - .env
+
+    environment:
+      # Inside Docker, the PostgreSQL hostname is the service name "postgres",
+      # not localhost.
+      POSTGRES_URI: postgresql://chatomni_user:${POSTGRES_PASSWORD:-chatomni_local_password}@postgres:5432/chatomni
+
+    ports:
+      - "8000:8000"
+
+    volumes:
+      # Keep uploaded and generated files outside the container
+      # so they survive container recreation.
+      - ./uploads:/app/uploads
+
+      # Allow the backend to create isolated code sandbox containers
+      # using the Docker daemon provided by Docker Desktop.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+      # Preserve downloaded Hugging Face models and avoid
+      # downloading them again after every rebuild.
+      - huggingface-cache:/root/.cache/huggingface
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    restart: unless-stopped
+
+
+  # Production React frontend served through Nginx
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+
+    container_name: chatomni-frontend
+
+    ports:
+      - "5173:80"
+
+    depends_on:
+      - backend
+
+    restart: unless-stopped
+
+
+volumes:
+
+  # Persistent PostgreSQL database storage
+  postgres-data:
+
+  # Persistent Hugging Face model cache
+  huggingface-cache:
