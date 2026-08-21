@@ -44,9 +44,18 @@ def setup_conversations():
                 """
             )
 
+
+            cursor.execute(
+                """
+                ALTER TABLE chat_conversations
+                ADD COLUMN IF NOT EXISTS user_id TEXT
+                """
+            )
+
 # Adds a new chat or updates its last used time.
 def ensure_chat(
     chat_id: str,
+    user_id: str,
     project_id: str | None = None
 ):
     # Cleans chat_id and uses "current_chat" if it is empty.
@@ -65,9 +74,11 @@ def ensure_chat(
                 INSERT INTO chat_conversations (
                     chat_id,
                     title,
-                    project_id
+                    project_id,
+                    user_id
                 )
                 VALUES (
+                    %s,
                     %s,
                     %s,
                     %s
@@ -79,13 +90,15 @@ def ensure_chat(
                 (
                     chat_id,
                     "New Chat",
-                    project_id
+                    project_id,
+                    user_id
                 ),
             )
 
 # Gets the current title of a chat.
 def get_chat_title(
-    chat_id: str
+    chat_id: str,
+    user_id: str
 ):
 
     chat_id = (
@@ -104,9 +117,11 @@ def get_chat_title(
                 SELECT title
                 FROM chat_conversations
                 WHERE chat_id = %s
+                AND user_id = %s
                 """,
                 (
                     chat_id,
+                    user_id,
                 ),
             )
 
@@ -123,7 +138,8 @@ def get_chat_title(
 # Updates the title of a chat.
 def update_chat_title(
     chat_id: str,
-    title: str
+    title: str,
+    user_id: str
 ):
 
     chat_id = (
@@ -151,16 +167,19 @@ def update_chat_title(
                     title = %s,
                     updated_at = NOW()
                 WHERE chat_id = %s
+                AND user_id = %s
                 """,
                 (
                     title,
                     chat_id,
+                    user_id,
                 ),
             )
 
 # Deletes a chat from the chat list.
 def delete_chat(
-    chat_id: str
+    chat_id: str,
+    user_id: str
 ):
 
     chat_id = (
@@ -178,14 +197,18 @@ def delete_chat(
                 """
                 DELETE FROM chat_conversations
                 WHERE chat_id = %s
+                AND user_id = %s
                 """,
                 (
                     chat_id,
+                    user_id,
                 ),
             )
 
 # Gets saved chats, newest first.
-def get_chats():
+def get_chats(
+        user_id: str
+):
 
     with get_connection() as connection:
 
@@ -200,8 +223,12 @@ def get_chats():
                     updated_at
                 FROM chat_conversations
                 WHERE project_id IS NULL
+                AND user_id = %s
                 ORDER BY updated_at DESC
-                """
+                """,
+                (
+                    user_id,
+                )
             )
 
             rows = cursor.fetchall()
@@ -226,7 +253,8 @@ def get_chats():
     ]      
 
 def get_project_chats(
-    project_id: str
+    project_id: str,
+    user_id: str
 ):
 
     with get_connection() as connection:
@@ -243,10 +271,12 @@ def get_project_chats(
                     updated_at
                 FROM chat_conversations
                 WHERE project_id = %s
+                AND user_id = %s
                 ORDER BY updated_at DESC
                 """,
                 (
                     project_id,
+                    user_id,
                 ),
             )
 

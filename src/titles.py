@@ -66,11 +66,13 @@ User message:
 # Creates a title only if the chat still has the default title.
 def create_title_if_needed(
     chat_id: str,
-    message: str
+    message: str,
+    user_id: str
 ):
 
     current_title = get_chat_title(
-        chat_id
+        chat_id,
+        user_id
     )
 
 
@@ -91,7 +93,8 @@ def create_title_if_needed(
 
         update_chat_title(
             chat_id,
-            title
+            title,
+            user_id
         )
 
 

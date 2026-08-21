@@ -7,7 +7,7 @@ import zipfile
 
 from pathlib import Path, PurePosixPath
 from typing import Literal
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
@@ -29,9 +29,13 @@ from src.agent import get_agent
 from src.citations import get_web_sources
 from src.context import Context
 from src.tools import set_rag_pdf, GENERATED_CODE_DIR
+from src.auth import router as auth_router, init_users_table, get_current_user
 
 
 app = FastAPI()
+
+init_users_table()
+app.include_router(auth_router)
 
 UPLOAD_DIR = Path("uploads")
 
@@ -272,13 +276,18 @@ def get_model_fit_hint(
     return None
 
 def get_chat_config(
-    chat_id: str
+    chat_id: str,
+    user_id: str
 ) -> dict:
 
-    thread_id = (
+    clean_chat_id = (
         chat_id.strip()
         or
         "current_chat"
+    )
+
+    thread_id = (
+        f"{user_id}:{clean_chat_id}"
     )
 
     return {
@@ -885,21 +894,27 @@ def health_check():
     }
 
 @app.get("/projects")
-def list_projects():
+def list_projects(
+    user = Depends(get_current_user)
+):
 
     return {
         "projects":
-            get_projects()
+            get_projects(
+                user["id"]
+            )
     }
 
 
 @app.post("/projects")
 def add_project(
-    request: ProjectCreateRequest
+    request: ProjectCreateRequest,
+    user=Depends(get_current_user)
 ):
 
     project = create_project(
-        request.name
+        request.name,
+        user["id"]
     )
 
     return {
@@ -912,11 +927,13 @@ def add_project(
     "/projects/{project_id}/chats"
 )
 def list_project_chats(
-    project_id: str
+    project_id: str,
+    user = Depends(get_current_user)
 ):
 
     project = get_project(
-        project_id
+        project_id,
+        user["id"]
     )
 
     if not project:
@@ -942,10 +959,12 @@ def list_project_chats(
 async def upload_project_zip(
     project_id: str,
     file: UploadFile = File(...),
+    user=Depends(get_current_user)
 ):
 
     project = get_project(
-        project_id
+        project_id,
+        user["id"]
     )
 
     if not project:
@@ -1079,11 +1098,13 @@ async def upload_project_zip(
     "/projects/{project_id}/files"
 )
 def list_project_files(
-    project_id: str
+    project_id: str,
+    user= Depends(get_current_user)
 ):
 
     project = get_project(
-        project_id
+        project_id,
+        user["id"]
     )
 
     if not project:
@@ -1107,11 +1128,13 @@ def list_project_files(
     "/projects/{project_id}"
 )
 def remove_project(
-    project_id: str
+    project_id: str,
+    user=Depends(get_current_user)
 ):
 
     project = get_project(
-        project_id
+        project_id,
+        user["id"]
     )
 
     if not project:
@@ -1123,7 +1146,8 @@ def remove_project(
     # Get all chats belonging to this project.
     project_chats = (
         get_project_chats(
-            project_id
+            project_id,
+            user["id"]
         )
     )
 
@@ -1135,12 +1159,18 @@ def remove_project(
             chat["chat_id"]
         )
 
+        thread_id = (
+            f"{user['id']}:{chat_id}"
+        )
+
+
         checkpointer.delete_thread(
-            chat_id
+            thread_id
         )
 
         delete_chat(
-            chat_id
+            chat_id,
+            user["id"]
         )
 
     # Delete the project's stored files.
@@ -1175,11 +1205,15 @@ def remove_project(
 
 
 @app.get("/chats")
-def list_chats():
+def list_chats(
+    user = Depends(get_current_user)
+):
 
     return {
         "chats":
-            get_chats()
+            get_chats(
+                user["id"]
+            )
     }
 
 # Deletes a saved chat and its conversation history.
@@ -1187,15 +1221,19 @@ def list_chats():
     "/chats/{chat_id}"
 )
 def remove_chat(
-    chat_id: str
+    chat_id: str,
+    user=Depends(get_current_user)
 ):
 
-    thread_id = (
+    clean_chat_id = (
         chat_id.strip()
         or
         "current_chat"
     )
 
+    thread_id = (
+        f"{user['id']}:{clean_chat_id}"
+    )
 
     checkpointer.delete_thread(
         thread_id
@@ -1203,7 +1241,8 @@ def remove_chat(
 
 
     delete_chat(
-        thread_id
+        thread_id,
+        user["id"]
     )
 
 
@@ -1218,11 +1257,13 @@ def remove_chat(
     "/chats/{chat_id}/messages"
 )
 def get_chat_messages(
-    chat_id: str
+    chat_id: str,
+    user = Depends(get_current_user)
 ):
 
     config = get_chat_config(
-        chat_id
+        chat_id,
+        user["id"]
     )
 
 
@@ -1304,7 +1345,8 @@ def get_chat_messages(
 
 @app.post("/upload-pdf")
 async def upload_pdf(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+     user=Depends(get_current_user),
 ):
 
     original_name = Path(
@@ -1373,7 +1415,8 @@ async def upload_pdf(
 
 @app.post("/upload-image")
 async def upload_image(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+     user=Depends(get_current_user),
 ):
 
     original_name = Path(
@@ -1472,7 +1515,8 @@ async def upload_image(
 
 @app.post("/upload-code")
 async def upload_code(
-    file: UploadFile = File(...)
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
 ):
 
     original_name = Path(
@@ -1601,7 +1645,8 @@ async def upload_code(
     "/generated-files/{file_id}"
 )
 def download_generated_file(
-    file_id: str
+    file_id: str,
+     user=Depends(get_current_user),
 ):
 
     safe_file_id = Path(
@@ -1658,21 +1703,39 @@ def download_generated_file(
 
 @app.post("/chat")
 def chat(
-    request: ChatRequest
+    request: ChatRequest,
+     user=Depends(get_current_user)
 ):
 
+    # Validates project ownership for the current user.
+    if request.project_id:
+
+        project = get_project(
+            request.project_id,
+            user["id"]
+        )
+
+        if not project:
+            raise HTTPException(
+                status_code=404,
+                detail="Project was not found."
+            )
+
     config = get_chat_config(
-        request.chat_id
+        request.chat_id,
+        user["id"]
     )
 
     ensure_chat(
         request.chat_id,
+        user["id"],
         request.project_id
     )
 
     create_title_if_needed(
         request.chat_id,
-        request.message
+        request.message,
+        user["id"]
     )
 
     # Use the model selected by the user
@@ -1681,7 +1744,7 @@ def chat(
     )
 
     request_context = Context(
-        user_id="local_user",
+        user_id=user["id"],
         project_id=request.project_id,
     )
 
@@ -1718,21 +1781,39 @@ def chat(
 
 @app.post("/chat/stream")
 def chat_stream(
-    request: ChatRequest
+    request: ChatRequest,
+     user=Depends(get_current_user)
 ):
 
+    # Validates project ownership for the current user.
+    if request.project_id:
+
+        project = get_project(
+            request.project_id,
+            user["id"]
+        )
+
+        if not project:
+            raise HTTPException(
+                status_code=404,
+                detail="Project was not found."
+            )
+
     config = get_chat_config(
-        request.chat_id
+        request.chat_id,
+        user["id"]
     )
 
     ensure_chat(
         request.chat_id,
+        user["id"],
         request.project_id
     )
 
     create_title_if_needed(
         request.chat_id,
-        request.message
+        request.message,
+        user["id"]
     )
 
     request_agent = get_agent(
@@ -1740,7 +1821,7 @@ def chat_stream(
     )
 
     request_context = Context(
-        user_id="local_user",
+        user_id=user["id"],
         project_id=request.project_id,
     )
 

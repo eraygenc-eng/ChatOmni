@@ -18,6 +18,73 @@ const TOOL_MARKER =
     '[[CHATOMNI_TOOL_ICONS]]';
 
 
+const API_BASE_URL =
+    'http://127.0.0.1:8000';
+
+
+const AUTH_TOKEN_KEY =
+    'chatomni_access_token';
+
+
+function getStoredAuthToken() {
+
+    return (
+        localStorage.getItem(
+            AUTH_TOKEN_KEY
+        )
+        ||
+        ''
+    );
+}
+
+
+function getAuthHeaders(
+    extraHeaders = {}
+) {
+
+    const token =
+        getStoredAuthToken();
+
+
+    if (!token) {
+
+        return {
+            ...extraHeaders,
+        };
+    }
+
+
+    return {
+        ...extraHeaders,
+
+        Authorization:
+            `Bearer ${token}`,
+    };
+}
+
+
+async function authFetch(
+    url,
+    options = {}
+) {
+
+    return fetch(
+        url,
+
+        {
+            ...options,
+
+            headers:
+                getAuthHeaders(
+                    options.headers
+                    ||
+                    {}
+                ),
+        }
+    );
+}
+
+
 // ========================================
 // TOOL ICONS
 // ========================================
@@ -713,7 +780,7 @@ function GeneratedFileCard({
 
 
                 const response =
-                    await fetch(
+                    await authFetch(
                         downloadUrl
                     );
 
@@ -753,7 +820,7 @@ function GeneratedFileCard({
 
 
             const response =
-                await fetch(
+                await authFetch(
                     downloadUrl
                 );
 
@@ -1291,6 +1358,79 @@ function App() {
     );
 
 
+    const [
+        authToken,
+        setAuthToken,
+    ] = useState(
+        () =>
+            getStoredAuthToken()
+    );
+
+
+    const [
+        currentUser,
+        setCurrentUser,
+    ] = useState(
+        null
+    );
+
+
+    const [
+        authChecking,
+        setAuthChecking,
+    ] = useState(
+        true
+    );
+
+
+    const [
+        authMode,
+        setAuthMode,
+    ] = useState(
+        'login'
+    );
+
+
+    const [
+        authName,
+        setAuthName,
+    ] = useState(
+        ''
+    );
+
+
+    const [
+        authEmail,
+        setAuthEmail,
+    ] = useState(
+        ''
+    );
+
+
+    const [
+        authPassword,
+        setAuthPassword,
+    ] = useState(
+        ''
+    );
+
+
+    const [
+        authError,
+        setAuthError,
+    ] = useState(
+        ''
+    );
+
+
+    const [
+        authLoading,
+        setAuthLoading,
+    ] = useState(
+        false
+    );
+
+
     // ========================================
     // REFS
     // ========================================
@@ -1356,6 +1496,512 @@ function App() {
 
 
     // ========================================
+    // AUTH
+    // ========================================
+
+    function resetUserWorkspace() {
+
+        if (
+            abortControllerRef
+                .current
+        ) {
+
+            abortControllerRef
+                .current
+                .abort();
+        }
+
+
+        abortControllerRef
+            .current =
+                null;
+
+
+        setInput(
+            ''
+        );
+
+
+        setMessages(
+            []
+        );
+
+
+        setSelectedFile(
+            null
+        );
+
+
+        setAttachMenuOpen(
+            false
+        );
+
+
+        setActiveChat(
+            null
+        );
+
+
+        setChatId(
+            crypto.randomUUID()
+        );
+
+
+        setChats(
+            []
+        );
+
+
+        setProjects(
+            []
+        );
+
+
+        setActiveProject(
+            null
+        );
+
+
+        setExpandedProjectId(
+            null
+        );
+
+
+        setProjectChats(
+            []
+        );
+
+
+        setIsCreatingProject(
+            false
+        );
+
+
+        setIsStreaming(
+            false
+        );
+
+
+        setSelectedModel(
+            'luna'
+        );
+
+
+        setModelMenuOpen(
+            false
+        );
+
+
+        autoScrollEnabledRef
+            .current =
+                true;
+    }
+
+
+    function handleLogout() {
+
+        localStorage.removeItem(
+            AUTH_TOKEN_KEY
+        );
+
+
+        setAuthToken(
+            ''
+        );
+
+
+        setCurrentUser(
+            null
+        );
+
+
+        setAuthPassword(
+            ''
+        );
+
+
+        setAuthError(
+            ''
+        );
+
+
+        setAuthMode(
+            'login'
+        );
+
+
+        resetUserWorkspace();
+    }
+
+
+    function switchAuthMode() {
+
+        setAuthMode(
+            (
+                currentMode
+            ) =>
+                currentMode ===
+                    'login'
+
+                    ? 'register'
+
+                    : 'login'
+        );
+
+
+        setAuthError(
+            ''
+        );
+
+
+        setAuthPassword(
+            ''
+        );
+    }
+
+
+    async function restoreAuthSession() {
+
+        const token =
+            getStoredAuthToken();
+
+
+        if (!token) {
+
+            setAuthChecking(
+                false
+            );
+
+            return;
+        }
+
+
+        try {
+
+            const response =
+                await fetch(
+                    `${API_BASE_URL}/auth/me`,
+
+                    {
+                        headers:
+                            getAuthHeaders(),
+                    }
+                );
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    `Session check failed: ${
+                        response.status
+                    }`
+                );
+            }
+
+
+            const user =
+                await response
+                    .json();
+
+
+            setAuthToken(
+                token
+            );
+
+
+            setCurrentUser(
+                user
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                'Could not restore auth session:',
+                error
+            );
+
+
+            localStorage.removeItem(
+                AUTH_TOKEN_KEY
+            );
+
+
+            setAuthToken(
+                ''
+            );
+
+
+            setCurrentUser(
+                null
+            );
+
+        }
+
+        finally {
+
+            setAuthChecking(
+                false
+            );
+        }
+    }
+
+
+    async function handleAuthSubmit(
+        event
+    ) {
+
+        event.preventDefault();
+
+
+        if (authLoading) {
+            return;
+        }
+
+
+        const cleanName =
+            authName
+                .trim();
+
+
+        const cleanEmail =
+            authEmail
+                .trim()
+                .toLowerCase();
+
+
+        const cleanPassword =
+            authPassword;
+
+
+        if (
+            !cleanEmail
+            ||
+            !cleanPassword
+        ) {
+
+            setAuthError(
+                'Email and password are required.'
+            );
+
+            return;
+        }
+
+
+        if (
+            authMode ===
+                'register'
+            &&
+            !cleanName
+        ) {
+
+            setAuthError(
+                'Name is required.'
+            );
+
+            return;
+        }
+
+
+        setAuthLoading(
+            true
+        );
+
+
+        setAuthError(
+            ''
+        );
+
+
+        try {
+
+            const endpoint =
+                authMode ===
+                    'register'
+
+                    ? '/auth/register'
+
+                    : '/auth/login';
+
+
+            const requestBody =
+                authMode ===
+                    'register'
+
+                    ? {
+                        name:
+                            cleanName,
+
+                        email:
+                            cleanEmail,
+
+                        password:
+                            cleanPassword,
+                    }
+
+                    : {
+                        email:
+                            cleanEmail,
+
+                        password:
+                            cleanPassword,
+                    };
+
+
+            const response =
+                await fetch(
+                    `${API_BASE_URL}${endpoint}`,
+
+                    {
+                        method:
+                            'POST',
+
+                        headers: {
+                            'Content-Type':
+                                'application/json',
+                        },
+
+                        body:
+                            JSON.stringify(
+                                requestBody
+                            ),
+                    }
+                );
+
+
+            let data =
+                null;
+
+
+            try {
+
+                data =
+                    await response
+                        .json();
+
+            }
+
+            catch {
+
+                data =
+                    null;
+            }
+
+
+            if (!response.ok) {
+
+                const detail =
+                    data
+                        ?.detail;
+
+
+                throw new Error(
+                    typeof detail ===
+                        'string'
+
+                        ? detail
+
+                        : (
+                            authMode ===
+                                'register'
+
+                                ? 'Account could not be created.'
+
+                                : 'Email or password is incorrect.'
+                        )
+                );
+            }
+
+
+            const token =
+                data
+                    ?.access_token;
+
+
+            const user =
+                data
+                    ?.user;
+
+
+            if (
+                !token
+                ||
+                !user
+            ) {
+
+                throw new Error(
+                    'Authentication response is incomplete.'
+                );
+            }
+
+
+            localStorage.setItem(
+                AUTH_TOKEN_KEY,
+                token
+            );
+
+
+            resetUserWorkspace();
+
+
+            setAuthToken(
+                token
+            );
+
+
+            setCurrentUser(
+                user
+            );
+
+
+            setAuthPassword(
+                ''
+            );
+
+
+            setAuthError(
+                ''
+            );
+
+        }
+
+        catch (error) {
+
+            console.error(
+                'Authentication failed:',
+                error
+            );
+
+
+            setAuthError(
+                error.message
+                ||
+                'Authentication failed.'
+            );
+
+        }
+
+        finally {
+
+            setAuthLoading(
+                false
+            );
+        }
+    }
+
+
+    useEffect(
+        () => {
+
+            restoreAuthSession();
+
+        },
+        []
+    );
+
+
+    // ========================================
     // LOAD SAVED CHATS
     // ========================================
 
@@ -1364,7 +2010,7 @@ function App() {
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     'http://127.0.0.1:8000/chats'
                 );
 
@@ -1415,7 +2061,7 @@ function App() {
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     'http://127.0.0.1:8000/projects'
                 );
 
@@ -1478,7 +2124,7 @@ function App() {
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     `http://127.0.0.1:8000/projects/${
                         encodeURIComponent(
                             projectId
@@ -1546,11 +2192,36 @@ function App() {
     useEffect(
         () => {
 
+            if (
+                !currentUser
+                ||
+                !authToken
+            ) {
+
+                setChats(
+                    []
+                );
+
+
+                setProjects(
+                    []
+                );
+
+
+                return;
+            }
+
+
             loadChats();
             loadProjects();
 
         },
-        []
+        [
+            currentUser
+                ?.id,
+
+            authToken,
+        ]
     );
 
 
@@ -2350,7 +3021,7 @@ function App() {
 
 
                 const uploadResponse =
-                    await fetch(
+                    await authFetch(
                         'http://127.0.0.1:8000/upload-pdf',
 
                         {
@@ -2430,7 +3101,7 @@ function App() {
 
 
                 const uploadResponse =
-                    await fetch(
+                    await authFetch(
                         'http://127.0.0.1:8000/upload-image',
 
                         {
@@ -2528,7 +3199,7 @@ function App() {
 
 
                 const uploadResponse =
-                    await fetch(
+                    await authFetch(
                         'http://127.0.0.1:8000/upload-code',
 
                         {
@@ -2643,7 +3314,7 @@ function App() {
 
 
             const response =
-                await fetch(
+                await authFetch(
                     'http://127.0.0.1:8000/chat/stream',
 
                     {
@@ -3812,7 +4483,7 @@ function App() {
         try {
 
             const createResponse =
-                await fetch(
+                await authFetch(
                     'http://127.0.0.1:8000/projects',
 
                     {
@@ -3904,7 +4575,7 @@ function App() {
 
 
             const uploadResponse =
-                await fetch(
+                await authFetch(
                     `http://127.0.0.1:8000/projects/${
                         encodeURIComponent(
                             project.project_id
@@ -4095,7 +4766,7 @@ function App() {
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     `http://127.0.0.1:8000/chats/${
                         encodeURIComponent(
                             selectedChatId
@@ -4302,7 +4973,7 @@ function App() {
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     `http://127.0.0.1:8000/chats/${
                         encodeURIComponent(
                             chat.chat_id
@@ -4460,7 +5131,7 @@ This will permanently delete the project, its project chats, and its stored file
         try {
 
             const response =
-                await fetch(
+                await authFetch(
                     `http://127.0.0.1:8000/projects/${
                         encodeURIComponent(
                             project.project_id
@@ -5033,6 +5704,301 @@ This will permanently delete the project, its project chats, and its stored file
     // UI
     // ========================================
 
+    if (authChecking) {
+
+        return (
+            <div
+                className={
+                    `app ${theme}`
+                }
+            >
+
+                <div className="auth-screen">
+
+                    <div className="auth-card auth-loading-card">
+
+                        <div className="auth-brand">
+                            ChatOmni
+                        </div>
+
+
+                        <div className="auth-loading-row">
+
+                            <span className="thinking-dots">
+                                <span />
+                                <span />
+                                <span />
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+        );
+    }
+
+
+    if (
+        !authToken
+        ||
+        !currentUser
+    ) {
+
+        return (
+            <div
+                className={
+                    `app ${theme}`
+                }
+            >
+
+                <div className="auth-screen">
+
+                    <div className="auth-card">
+
+                        <div className="auth-card-header">
+
+                            <div className="auth-brand">
+                                ChatOmni
+                            </div>
+
+
+                            <h1 className="auth-title">
+                                {
+                                    authMode ===
+                                    'register'
+
+                                        ? 'Create your account'
+
+                                        : 'Welcome back'
+                                }
+                            </h1>
+
+
+                            <p className="auth-subtitle">
+                                {
+                                    authMode ===
+                                    'register'
+
+                                        ? 'Create an account to start using ChatOmni.'
+
+                                        : 'Sign in to continue to your chats and projects.'
+                                }
+                            </p>
+
+                        </div>
+
+
+                        <form
+                            className="auth-form"
+                            onSubmit={
+                                handleAuthSubmit
+                            }
+                        >
+
+                            {
+                                authMode ===
+                                'register'
+                                && (
+                                    <label className="auth-field">
+
+                                        <span>
+                                            Name
+                                        </span>
+
+
+                                        <input
+                                            type="text"
+                                            value={
+                                                authName
+                                            }
+                                            onChange={
+                                                (
+                                                    event
+                                                ) =>
+                                                    setAuthName(
+                                                        event
+                                                            .target
+                                                            .value
+                                                    )
+                                            }
+                                            placeholder="Your name"
+                                            autoComplete="name"
+                                            disabled={
+                                                authLoading
+                                            }
+                                        />
+
+                                    </label>
+                                )
+                            }
+
+
+                            <label className="auth-field">
+
+                                <span>
+                                    Email
+                                </span>
+
+
+                                <input
+                                    type="email"
+                                    value={
+                                        authEmail
+                                    }
+                                    onChange={
+                                        (
+                                            event
+                                        ) =>
+                                            setAuthEmail(
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                    }
+                                    placeholder="you@example.com"
+                                    autoComplete="email"
+                                    disabled={
+                                        authLoading
+                                    }
+                                />
+
+                            </label>
+
+
+                            <label className="auth-field">
+
+                                <span>
+                                    Password
+                                </span>
+
+
+                                <input
+                                    type="password"
+                                    value={
+                                        authPassword
+                                    }
+                                    onChange={
+                                        (
+                                            event
+                                        ) =>
+                                            setAuthPassword(
+                                                event
+                                                    .target
+                                                    .value
+                                            )
+                                    }
+                                    placeholder="Password"
+                                    autoComplete={
+                                        authMode ===
+                                        'register'
+
+                                            ? 'new-password'
+
+                                            : 'current-password'
+                                    }
+                                    disabled={
+                                        authLoading
+                                    }
+                                />
+
+                            </label>
+
+
+                            {
+                                authError && (
+                                    <div
+                                        className="auth-error"
+                                        role="alert"
+                                    >
+                                        {
+                                            authError
+                                        }
+                                    </div>
+                                )
+                            }
+
+
+                            <button
+                                type="submit"
+                                className="auth-submit-button"
+                                disabled={
+                                    authLoading
+                                }
+                            >
+                                {
+                                    authLoading
+
+                                        ? (
+                                            authMode ===
+                                            'register'
+
+                                                ? 'Creating account...'
+
+                                                : 'Signing in...'
+                                        )
+
+                                        : (
+                                            authMode ===
+                                            'register'
+
+                                                ? 'Create account'
+
+                                                : 'Sign in'
+                                        )
+                                }
+                            </button>
+
+                        </form>
+
+
+                        <div className="auth-switch-row">
+
+                            <span>
+                                {
+                                    authMode ===
+                                    'register'
+
+                                        ? 'Already have an account?'
+
+                                        : 'New to ChatOmni?'
+                                }
+                            </span>
+
+
+                            <button
+                                type="button"
+                                className="auth-switch-button"
+                                onClick={
+                                    switchAuthMode
+                                }
+                                disabled={
+                                    authLoading
+                                }
+                            >
+                                {
+                                    authMode ===
+                                    'register'
+
+                                        ? 'Sign in'
+
+                                        : 'Create account'
+                                }
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+        );
+    }
+
+
     return (
         <div
             className={
@@ -5076,6 +6042,46 @@ This will permanently delete the project, its project chats, and its stored file
                         <h2>
                             ChatOmni
                         </h2>
+
+
+                        <div className="sidebar-user">
+
+                            <div className="sidebar-user-text">
+
+                                <span className="sidebar-user-name">
+                                    {
+                                        currentUser.name
+                                        ||
+                                        'User'
+                                    }
+                                </span>
+
+
+                                <span className="sidebar-user-email">
+                                    {
+                                        currentUser.email
+                                        ||
+                                        ''
+                                    }
+                                </span>
+
+                            </div>
+
+
+                            <button
+                                type="button"
+                                className="logout-button"
+                                onClick={
+                                    handleLogout
+                                }
+                                disabled={
+                                    isStreaming
+                                }
+                            >
+                                Log out
+                            </button>
+
+                        </div>
 
 
                         <button

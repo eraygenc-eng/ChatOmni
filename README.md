@@ -1,25 +1,82 @@
 # ChatOmni
 
-**ChatOmni** is a modular general-purpose AI assistant built with Python, LangChain, LangGraph, FastAPI, React, PostgreSQL, Docker, and OpenAI models.
+**ChatOmni** is a modular, multi-user general-purpose AI assistant built with Python, LangChain, LangGraph, FastAPI, React, PostgreSQL, Docker, and OpenAI models.
 
-The goal of the project is to build a conversational AI assistant that combines general-purpose reasoning with specialized tools such as:
+The project combines general-purpose conversational reasoning with specialized tools and persistent application state. The current feature set includes:
 
 - Real-time web search
 - Mathematical calculations
 - Currency conversion
 - Retrieval-Augmented Generation (RAG)
-- Persistent conversation and user memory
+- Persistent multi-chat conversation history
+- Persistent long-term user memory
+- User registration, login, logout, and JWT-based authentication
+- Per-user chat, memory, and project isolation
+- Persistent project workspaces with ZIP codebase upload
 - Image and screenshot understanding
-- Multi-language code execution
 - Code and text file analysis
-- Downloadable code generation
-- Selectable AI models for different task complexity levels
+- Multi-language code execution in isolated Docker sandboxes
+- Downloadable source-code generation
+- Selectable GPT-5.6 Luna / GPT-5.6 Terra models
+- A React-based graphical chat interface
 
-Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent**.
+Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent**. The selected language model can decide whether a request should be answered directly or whether a specialized tool should be called.
 
-The language model can decide when a request should be answered directly and when an external tool should be used.
+The main application features are now complete. The remaining work is focused on packaging the final version with Docker and deploying it on AWS.
 
-ChatOmni is currently under active development.
+## Architecture Overview
+
+```text
+                                  User
+                                   │
+                                   ▼
+                         React + Vite Frontend
+                                   │
+                          Login / Register / JWT
+                                   │
+                                   ▼
+                              FastAPI API
+                                   │
+          ┌────────────────────────┼────────────────────────┐
+          │                        │                        │
+          ▼                        ▼                        ▼
+   Authentication            Chat / Agent APIs        Project / File APIs
+          │                        │                        │
+          │                        ▼                        │
+          │                 Model Selection                 │
+          │                 Luna / Terra                    │
+          │                        │                        │
+          │                        ▼                        │
+          │                  ChatOmni Agent                 │
+          │                        │                        │
+          │       ┌────────────────┼────────────────┐       │
+          │       │                │                │       │
+          │       ▼                ▼                ▼       │
+          │   Direct Reply       Tools           Memory     │
+          │                        │                │       │
+          │      ┌─────────────────┼────────────────┐       │
+          │      │        │        │       │        │       │
+          │      ▼        ▼        ▼       ▼        ▼       │
+          │     Web   Calculator Currency  RAG   Sandbox    │
+          │                                      / Files    │
+          │                                                │
+          └──────────────────────┬─────────────────────────┘
+                                 │
+                    ┌────────────┴────────────┐
+                    │                         │
+                    ▼                         ▼
+                PostgreSQL              Persistent Files
+                    │                         │
+          ┌─────────┼─────────┐      ┌────────┼────────┐
+          │         │         │      │        │        │
+          ▼         ▼         ▼      ▼        ▼        ▼
+        Users     Chats     Memory  Projects Images   Code
+                    │
+                    ▼
+            LangGraph Checkpoints
+```
+
+At runtime, authenticated users receive their own application context. Conversation threads are namespaced per user, project ownership is checked with the authenticated user ID, and protected upload/download requests require a valid JWT.
 
 ---
 
@@ -258,8 +315,6 @@ What are the latest developments in a technology?
 
 When web search is used, ChatOmni can detect the web-search usage and expose source information to the frontend.
 
-The citation system will continue to be improved in future versions.
-
 ---
 
 # Mathematical Calculations
@@ -367,6 +422,8 @@ set_rag_pdf()
 RAGPipeline
 ```
 
+The PDF upload endpoint is protected by JWT authentication.
+
 Once the PDF is loaded, the user can ask questions naturally:
 
 ```text
@@ -450,6 +507,8 @@ Ctrl + V
 ```
 
 The frontend uploads the image to FastAPI and sends the corresponding image identifier together with the conversation request.
+
+The image upload endpoint is protected by JWT authentication.
 
 Conceptually:
 
@@ -541,10 +600,12 @@ The frontend also provides a **Stop** button that allows an active response to b
 
 ChatOmni supports multiple persistent chat sessions.
 
-Each chat receives its own unique `chat_id`, which is used as the LangGraph:
+Each chat receives its own unique `chat_id`.
+
+For authenticated users, the LangGraph conversation thread is namespaced with both the user ID and chat ID:
 
 ```text
-thread_id
+user_id : chat_id
 ```
 
 Conversation state is stored using a PostgreSQL-backed LangGraph checkpointer.
@@ -634,15 +695,121 @@ Conversation State       Long-Term Memory
 
 The persistent memory system is shared across model selection, allowing Luna and Terra to access the same user context when appropriate.
 
+Long-term memory is scoped to the authenticated user, so separate users do not share the same persistent memory namespace.
+
+---
+
+# User Authentication and Multi-User Isolation
+
+ChatOmni includes a minimal multi-user authentication system built directly into the FastAPI backend and React frontend.
+
+The authentication flow supports:
+
+- User registration
+- User login
+- User logout
+- Password hashing with Argon2
+- JWT access tokens
+- Authenticated `/auth/me` session restoration
+- Protected chat, project, upload, and generated-file endpoints
+
+Conceptually:
+
+```text
+Register / Login
+      │
+      ▼
+FastAPI Auth
+      │
+      ├── Password Hashing (Argon2)
+      │
+      └── JWT Access Token
+                │
+                ▼
+         React Frontend
+                │
+                ▼
+   Authorization: Bearer <token>
+                │
+                ▼
+        Protected FastAPI APIs
+                │
+                ▼
+         Authenticated user_id
+```
+
+The authenticated user ID is used to isolate user-owned application state.
+
+Conversation threads are namespaced using both the user ID and chat ID:
+
+```text
+user_id : chat_id
+```
+
+This prevents two users from sharing the same LangGraph conversation thread even if the same chat identifier were used.
+
+Chat metadata and project ownership are also filtered by the authenticated user ID.
+
+The authentication layer has been tested with multiple accounts to confirm that one user cannot see another user's chat list or project list.
+
+---
+
+# Persistent Projects
+
+ChatOmni includes persistent project workspaces for working with larger codebases across multiple conversations.
+
+A user can create a project from the sidebar and upload a ZIP codebase once.
+
+Conceptually:
+
+```text
+Authenticated User
+       │
+       ▼
+   New Project
+       │
+       ▼
+   Upload ZIP
+       │
+       ▼
+Secure Extraction
+       │
+       ▼
+Persistent Project Files
+       │
+       ├────────────── Project Chat 1
+       ├────────────── Project Chat 2
+       └────────────── Project Chat 3
+```
+
+Each project has its own unique `project_id` and belongs to a specific authenticated user.
+
+Normal chats use:
+
+```text
+project_id = null
+```
+
+while project chats carry the corresponding project ID.
+
+Project files persist across project chats and application restarts, so the same codebase does not need to be uploaded again for every conversation.
+
+ChatOmni does not blindly send the entire project to the model on every request. Project analysis is scope-aware: when a user asks about a specific file or module, the system retrieves the relevant project content for that request.
+
+The project API checks project ownership before allowing access to project chats, project files, ZIP uploads, or project deletion.
+
 ---
 
 # Multi-Chat React Interface
 
-ChatOmni now includes a graphical chat interface built with **React + Vite**.
+ChatOmni includes a graphical chat interface built with **React + Vite**.
 
 The interface includes:
 
+- Login and registration screens
+- Authenticated user information and logout control
 - Persistent conversation sidebar
+- Projects and project chats
 - New Chat button
 - Automatic chat titles
 - Reopening saved chats
@@ -652,7 +819,7 @@ The interface includes:
 - Streaming assistant responses
 - Thinking indicator
 - Stop-generation button
-- File attachments
+- PDF, image, code, and text file attachments
 - Markdown rendering
 - LaTeX rendering
 - Code blocks
@@ -665,18 +832,20 @@ The interface includes:
 Conceptually:
 
 ```text
-┌─────────────────────────────────────────────────────┐
-│ ChatOmni                                      Theme │
-├─────────────────┬───────────────────────────────────┤
-│ New Chat        │                                   │
-│                 │          Conversation             │
-│ Chat 1          │                                   │
-│ Chat 2          │       User / Assistant            │
-│ Chat 3          │                                   │
-│                 │                                   │
-│                 │   PDF / Image / Code Upload       │
-│                 │   Model: Luna ▼                   │
-└─────────────────┴───────────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│ ChatOmni                                           Theme │
+├──────────────────┬───────────────────────────────────────┤
+│ User / Log out   │                                       │
+│ New Chat         │                                       │
+│                  │            Conversation               │
+│ PROJECTS         │                                       │
+│ Project 1        │         User / Assistant              │
+│   Project Chat   │                                       │
+│                  │                                       │
+│ CHATS            │    PDF / Image / Code Upload          │
+│ Chat 1           │    Model: Luna ▼                      │
+│ Chat 2           │                                       │
+└──────────────────┴───────────────────────────────────────┘
 ```
 
 The interface was designed to behave more like a modern conversational AI application rather than a terminal-only chatbot.
@@ -774,6 +943,8 @@ Currently supported extensions include:
 ```
 
 Uploaded files are treated as text and passed to the assistant for analysis.
+
+Code and text upload requests require an authenticated user.
 
 Example:
 
@@ -916,7 +1087,7 @@ Example execution configuration:
 
 Different languages receive different resource and temporary-directory configurations depending on whether compilation and executable files are required.
 
-> Docker-based sandboxing is useful isolation for the current local and portfolio-oriented version of ChatOmni, but Docker containers should not be treated as a perfect security boundary for a public arbitrary-code execution service. Additional production hardening is planned.
+> Docker-based sandboxing provides useful isolation for the current ChatOmni implementation, but Docker containers should not be treated as a perfect security boundary for an unrestricted public arbitrary-code execution service.
 
 ---
 
@@ -979,6 +1150,8 @@ GET /generated-files/{file_id}
 ```
 
 The React interface receives a generated-file stream event and displays a download card.
+
+Generated-file downloads are protected by JWT authentication.
 
 Example:
 
@@ -1103,6 +1276,14 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 - python-dotenv
 - requests
 
+## Authentication
+
+- PyJWT
+- HS256 JWT access tokens
+- FastAPI HTTP Bearer authentication
+- `pwdlib`
+- Argon2 password hashing
+
 ## Frontend
 
 - React
@@ -1120,6 +1301,17 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 - LangGraph PostgreSQL Checkpointer
 - LangGraph persistent Store
 - psycopg
+- User-scoped conversation threads
+- User-scoped long-term memory
+
+## Projects
+
+- Persistent project metadata
+- User-owned project workspaces
+- ZIP codebase upload and extraction
+- Persistent project files
+- Project-specific chat sessions
+- Scope-aware project retrieval
 
 ## Retrieval-Augmented Generation
 
@@ -1166,7 +1358,7 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 
 # Current Project Structure
 
-The project is divided into frontend, backend, persistence, agent, RAG integration, containerization, and sandbox components.
+The project is divided into frontend, backend, authentication, persistence, projects, agent, RAG integration, containerization, and sandbox components.
 
 ```text
 chatomni/
@@ -1213,10 +1405,13 @@ chatomni/
 │
 ├── src/
 │   ├── agent.py
+│   ├── auth.py
 │   ├── tools.py
 │   ├── code_sandbox.py
 │   ├── checkpointer.py
 │   ├── conversations.py
+│   ├── projects.py
+│   ├── project_files.py
 │   ├── titles.py
 │   ├── memory.py
 │   ├── context.py
@@ -1277,6 +1472,8 @@ Uploaded and generated files are mounted from the local `uploads/` directory.
 
 The backend also mounts the Docker socket so the existing Code Sandbox can create short-lived isolated execution containers when code execution is requested.
 
+The local Docker foundation is already available. Before AWS deployment, the final authentication- and project-enabled build will be rebuilt and verified through Docker Compose as the deployment candidate.
+
 ## Local Docker Requirements
 
 To run the complete local version, the host machine needs:
@@ -1304,6 +1501,8 @@ to:
 ```
 
 and provide the required values.
+
+The current authenticated version also requires a `JWT_SECRET_KEY` for signing access tokens.
 
 The Docker Compose setup uses `POSTGRES_PASSWORD` to initialize the PostgreSQL container.
 
@@ -1387,7 +1586,7 @@ docker compose up
 
 ---
 
-# Application Architecture
+# Detailed Application Architecture
 
 A simplified view of the current system:
 
@@ -1403,30 +1602,36 @@ A simplified view of the current system:
                             ▼
                          FastAPI
                             │
-              ┌─────────────┴─────────────┐
-              │                           │
-              ▼                           ▼
-       ChatOmni Agent                 Upload APIs
-              │                           │
-   ┌──────────┼──────────┐        ┌───────┼─────────┐
-   │          │          │        │       │         │
-   ▼          ▼          ▼        ▼       ▼         ▼
- Web       Currency     RAG      PDF     Image     Code
-   │          │          │
-   └──────────┼──────────┘
-              │
-              ▼
-        LangGraph Runtime
-              │
-       ┌──────┴───────────────┐
-       │                      │
-       ▼                      ▼
- PostgreSQL Container    Docker Socket
-       │                      │
-       ▼                      ▼
-Persistent Volume      Temporary Sandbox
-                       Containers
+               ┌────────────┼────────────┐
+               │            │            │
+               ▼            ▼            ▼
+             Auth      ChatOmni Agent   Projects / Uploads
+               │            │            │
+               │     ┌──────┼──────┐     │
+               │     │      │      │     │
+               │     ▼      ▼      ▼     │
+               │    Web   Currency RAG   │
+               │            │            │
+               │         Sandbox         │
+               │            │            │
+               └────────────┼────────────┘
+                            │
+                     LangGraph Runtime
+                            │
+               ┌────────────┼────────────┐
+               │            │            │
+               ▼            ▼            ▼
+             Users     PostgreSQL     Docker Socket
+                          │                │
+                  ┌───────┼───────┐        ▼
+                  │       │       │   Temporary Sandbox
+                  ▼       ▼       ▼      Containers
+                Chats   Memory  Projects
 ```
+
+Authentication resolves every protected request to a unique user ID.
+
+That user ID is then used for conversation isolation, long-term memory context, project ownership, and user-specific application state.
 
 Model selection remains part of the React interface.
 
@@ -1438,7 +1643,7 @@ GPT-5.6 Luna
 GPT-5.6 Terra
 ```
 
-while sharing the same persistent conversation state, memory system, tools, and backend infrastructure.
+while sharing the authenticated user's persistent conversation state, memory system, tools, and backend infrastructure.
 
 ---
 
@@ -1580,204 +1785,58 @@ CODE   hello.py   Download
 
 ---
 
-# Development Roadmap
+# Next Development Step
 
-The major conversational and tool-using capabilities of ChatOmni are now implemented.
+The core ChatOmni feature set is complete.
 
-The remaining work primarily focuses on multi-user architecture, source transparency, production hardening, deployment, and final polish.
+No additional application features are currently planned for this version.
 
----
+## Final Dockerization and AWS Deployment
 
-## 1. Full Docker Application Setup — Implemented
+The remaining development step is to package the current authentication- and project-enabled version as the final Docker deployment build and deploy it on AWS.
 
-The complete local ChatOmni application is now containerized.
-
-The current local Docker architecture includes:
+The deployment flow will be:
 
 ```text
-React + Nginx Frontend
-        +
-FastAPI Backend
-        +
-PostgreSQL
-        +
-ChatOmni Agent
-        +
-RAG Dependencies
-        +
-Code Sandbox
+Current Feature-Complete ChatOmni
+              │
+              ▼
+      Final Docker Build
+              │
+              ▼
+   Docker Compose Verification
+              │
+              ▼
+      AWS Infrastructure
+              │
+      ┌───────┼────────┐
+      │       │        │
+      ▼       ▼        ▼
+   Frontend  Backend  PostgreSQL
+              │
+              ▼
+      Sandbox Runtime
+              │
+              ▼
+       Public Deployment
 ```
 
-Docker Compose starts the frontend, backend, and PostgreSQL services together.
+The final deployment work includes:
 
-The PostgreSQL container uses a persistent Docker volume so conversation history and long-term memory survive container restarts.
+- Rebuilding the current application with Docker
+- Verifying authentication inside the Dockerized environment
+- Verifying persistent chats, memory, and projects
+- Verifying PDF, image, and code uploads
+- Verifying generated-file downloads
+- Verifying the multi-language Code Sandbox
+- Configuring production environment variables and secrets
+- Deploying the frontend and FastAPI backend on AWS
+- Providing persistent PostgreSQL storage
+- Configuring the Docker runtime required by the Code Sandbox
+- Keeping infrastructure costs manageable
+- Verifying the deployed application end to end
 
-Uploaded and generated files are mounted from the host, and the Hugging Face cache is also persisted between container recreation.
-
-The FastAPI container can access the host Docker daemon through the Docker socket so ChatOmni can continue creating short-lived isolated sandbox containers for Python, JavaScript, Java, C, C++, C#, and Go execution.
-
-The complete Dockerized application has been tested with:
-
-- General conversation
-- Calculator tool usage
-- Code Sandbox execution
-- PDF upload and RAG
-- Image upload and understanding
-- Persistent conversation history after stopping and restarting Docker Compose
-
-The local version can now be shared as a repository-based Docker setup without requiring a separate PostgreSQL installation on the target machine.
-
----
-
-## 2. Multi-User Authentication and Data Isolation
-
-The current local version is designed primarily as a single-user application.
-
-Before exposing the application as a shared public deployment, ChatOmni will receive a minimal multi-user authentication layer.
-
-The planned architecture includes:
-
-```text
-Register
-   +
-Login
-   +
-Logout
-   ↓
-Authenticated User
-   ↓
-Unique User ID
-   ↓
-Per-user data isolation
-```
-
-User-owned resources will be isolated, including:
-
-```text
-Conversation History
-Long-Term Memory
-Uploaded Files
-RAG State
-Generated Files
-```
-
-The goal is to preserve the simple local experience while making the deployed version safe for multiple independent users.
-
----
-
-## 3. Generated File Persistence
-
-Generated download cards currently belong to the active frontend response.
-
-A future update will persist generated-file metadata together with conversation history so that reopening an older conversation can restore:
-
-```text
-CODE   example.py   Download
-```
-
-without requiring the file to be generated again.
-
----
-
-## 4. Improved Citation System
-
-The citation architecture will be expanded so different tools can expose their sources consistently.
-
-Planned citation types include:
-
-```text
-Web Search
-→ Website URLs
-
-RAG
-→ PDF pages / document references
-
-Currency
-→ Exchange-rate provider
-```
-
-The goal is to make externally retrieved information easier to verify directly from the interface.
-
----
-
-## 5. Code Sandbox Hardening
-
-The current Docker sandbox provides multiple isolation layers, but further work is planned before treating arbitrary-code execution as a production service.
-
-Planned improvements include:
-
-- Network-isolation verification tests
-- Filesystem-isolation tests
-- Timeout cleanup tests
-- Stronger output limits while processes are running
-- Better protection against excessive stdout/stderr
-- Sandbox-worker separation from the main API
-- Evaluation of stronger isolation technologies for public deployment
-
-Possible future approaches include:
-
-```text
-gVisor
-Kata Containers
-MicroVM-based isolation
-Remote sandbox workers
-```
-
----
-
-## 6. Production Hardening
-
-Before public deployment, the application will receive additional production-oriented improvements.
-
-Planned work includes:
-
-- Structured logging
-- Stronger error handling
-- Environment-based configuration
-- Secret management
-- Dependency cleanup
-- Upload cleanup policies
-- Generated-file cleanup policies
-- Request limits
-- Basic rate limiting
-- Production configuration
-
----
-
-## 7. AWS Deployment
-
-After multi-user isolation and production hardening, ChatOmni will be deployed on AWS.
-
-Deployment work will include:
-
-- Backend deployment
-- Frontend deployment
-- PostgreSQL persistence
-- Docker runtime configuration
-- Sandbox execution strategy
-- Environment-variable configuration
-- Cost optimization
-- Start/stop deployment workflow
-
-The goal is to make ChatOmni accessible as a deployed web application while keeping infrastructure costs manageable.
-
----
-
-## 8. Optional UI Improvements
-
-The current interface already supports the main required functionality.
-
-Possible future polish includes:
-
-- Manual chat renaming
-- Chat search
-- Custom delete-confirmation modal
-- Better loading states
-- Better error messages
-- Improved generated-file cards
-- Additional responsive UI improvements
-
-These are considered secondary improvements rather than core missing functionality.
+After this step, the current ChatOmni version will be considered complete.
 
 ---
 
@@ -1786,6 +1845,8 @@ These are considered secondary improvements rather than core missing functionali
 The long-term goal of ChatOmni is to combine multiple AI capabilities into a single modular assistant:
 
 ```text
+Authenticated Multi-User Access
+        +
 General Conversation
         +
 Selectable AI Models
@@ -1802,6 +1863,8 @@ Persistent Conversations
         +
 Long-Term Memory
         +
+Persistent Projects
+        +
 Image Understanding
         +
 Programming Assistance
@@ -1813,23 +1876,23 @@ File Generation
       ChatOmni
 ```
 
-Instead of implementing every capability directly inside the language-model workflow, specialized functionality is exposed through independent tools.
+Instead of implementing every capability directly inside the language-model workflow, specialized functionality is exposed through independent tools and persistence layers.
 
 This makes the system easier to:
 
-- Extend
 - Test
 - Maintain
-- Replace components
-- Add future capabilities
+- Isolate by user
+- Replace individual components
+- Operate as a modular application
 
-The architecture is intentionally modular so future tools can be added without rebuilding the whole assistant.
+The architecture keeps the agent, tools, memory, projects, authentication, and execution sandbox separated so the application remains maintainable as a complete system.
 
 ---
 
 # Project Status
 
-**Active Development**
+**Feature Complete — Deployment Pending**
 
 ## Implemented
 
@@ -1893,6 +1956,23 @@ The architecture is intentionally modular so future tools can be added without r
 - [x] Code file generation
 - [x] Generated source-code downloads
 - [x] Save-As file selection in supported browsers
+- [x] User registration
+- [x] User login
+- [x] User logout
+- [x] Argon2 password hashing
+- [x] JWT authentication
+- [x] Authenticated session restoration
+- [x] Per-user conversation isolation
+- [x] Per-user LangGraph thread namespaces
+- [x] Per-user long-term memory context
+- [x] Authenticated upload endpoints
+- [x] Authenticated generated-file downloads
+- [x] Persistent Projects system
+- [x] Per-user project ownership
+- [x] ZIP codebase upload
+- [x] Persistent project files
+- [x] Project-specific chat sessions
+- [x] Scope-aware project retrieval
 - [x] Full local Docker application setup
 - [x] Dockerized FastAPI backend
 - [x] React production build served through Nginx
@@ -1905,21 +1985,11 @@ The architecture is intentionally modular so future tools can be added without r
 - [x] Simple Docker-based local distribution
 - [x] Docker restart persistence verification
 
-## Planned
+## Remaining
 
-- [ ] Multi-user authentication
-- [ ] Per-user conversation isolation
-- [ ] Per-user long-term memory isolation
-- [ ] Per-user upload and RAG isolation
-- [ ] Generated-file cards restored when old chats are reopened
-- [ ] Improved citation UI
-- [ ] Additional Code Sandbox hardening
-- [ ] Production logging and error handling
-- [ ] Upload/generated-file cleanup policies
-- [ ] Rate limiting
-- [ ] AWS deployment
-- [ ] Final UI polish
-- [ ] Final README screenshots and documentation cleanup
+- [ ] Build and verify the final Docker image for the current feature-complete version
+- [ ] Deploy ChatOmni on AWS
+- [ ] Perform final end-to-end deployment verification
 
 ---
 
