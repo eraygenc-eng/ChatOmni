@@ -26,6 +26,114 @@ const AUTH_TOKEN_KEY =
     'chatomni_access_token';
 
 
+// ========================================
+// CLIENT ID
+// ========================================
+
+function createClientId() {
+
+    const cryptoObject =
+        globalThis.crypto;
+
+
+    if (
+        cryptoObject
+            ?.randomUUID
+    ) {
+
+        return cryptoObject
+            .randomUUID();
+    }
+
+
+    const bytes =
+        new Uint8Array(16);
+
+
+    if (
+        cryptoObject
+            ?.getRandomValues
+    ) {
+
+        cryptoObject
+            .getRandomValues(
+                bytes
+            );
+    }
+
+    else {
+
+        for (
+            let index = 0;
+            index < bytes.length;
+            index += 1
+        ) {
+
+            bytes[index] =
+                Math.floor(
+                    Math.random() * 256
+                );
+        }
+    }
+
+
+    bytes[6] =
+        (
+            bytes[6] & 0x0f
+        )
+        |
+        0x40;
+
+
+    bytes[8] =
+        (
+            bytes[8] & 0x3f
+        )
+        |
+        0x80;
+
+
+    return Array
+        .from(
+            bytes
+        )
+        .map(
+            (
+                byte,
+                index
+            ) => {
+
+                const hex =
+                    byte
+                        .toString(16)
+                        .padStart(
+                            2,
+                            '0'
+                        );
+
+
+                if (
+                    [
+                        4,
+                        6,
+                        8,
+                        10,
+                    ].includes(
+                        index
+                    )
+                ) {
+
+                    return `-${hex}`;
+                }
+
+
+                return hex;
+            }
+        )
+        .join('');
+}
+
+
 function getStoredAuthToken() {
 
     return (
@@ -1288,7 +1396,7 @@ function App() {
         setChatId,
     ] = useState(
         () =>
-            crypto.randomUUID()
+            createClientId()
     );
 
 
@@ -1543,7 +1651,7 @@ function App() {
 
 
         setChatId(
-            crypto.randomUUID()
+            createClientId()
         );
 
 
@@ -4167,7 +4275,7 @@ function App() {
 
 
         const newChatId =
-            crypto.randomUUID();
+            createClientId();
 
 
         setChatId(
@@ -4264,7 +4372,7 @@ function App() {
 
 
         const newChatId =
-            crypto.randomUUID();
+            createClientId();
 
 
         setActiveProject(
@@ -5005,7 +5113,7 @@ function App() {
             ) {
 
                 const newChatId =
-                    crypto.randomUUID();
+                    createClientId();
 
 
                 setChatId(
@@ -5208,7 +5316,7 @@ This will permanently delete the project, its project chats, and its stored file
             ) {
 
                 const newChatId =
-                    crypto.randomUUID();
+                    createClientId();
 
 
                 setChatId(
