@@ -11,11 +11,13 @@ ENV PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install git for the RAG package
-# and Docker CLI for the code execution sandbox
+# Install Git for the RAG package
+# and Docker CLI for the code execution sandbox.
+# The Docker daemon runs on the host and is accessed
+# through /var/run/docker.sock.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
-    docker.io \
+    docker-cli \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy Python dependency list first
