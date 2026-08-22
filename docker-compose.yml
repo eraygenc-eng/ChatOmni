@@ -1,7 +1,6 @@
 services:
 
-  # PostgreSQL database used by LangGraph
-  # for conversation checkpoints and long-term memory
+  # PostgreSQL database
   postgres:
     image: postgres:18-alpine
     container_name: chatomni-postgres
@@ -39,24 +38,20 @@ services:
       - .env
 
     environment:
-      # Inside Docker, the PostgreSQL hostname is the service name "postgres",
-      # not localhost.
       POSTGRES_URI: postgresql://chatomni_user:${POSTGRES_PASSWORD:-chatomni_local_password}@postgres:5432/chatomni
 
-    ports:
-      - "8000:8000"
+    # Backend is only reachable from inside
+    # the Docker network through Nginx.
+    expose:
+      - "8000"
 
     volumes:
-      # Keep uploaded and generated files outside the container
-      # so they survive container recreation.
       - ./uploads:/app/uploads
+      - ./projects_data:/app/projects_data
 
-      # Allow the backend to create isolated code sandbox containers
-      # using the Docker daemon provided by Docker Desktop.
+      # Required by ChatOmni's code sandbox
       - /var/run/docker.sock:/var/run/docker.sock
 
-      # Preserve downloaded Hugging Face models and avoid
-      # downloading them again after every rebuild.
       - huggingface-cache:/root/.cache/huggingface
 
     depends_on:
@@ -66,7 +61,7 @@ services:
     restart: unless-stopped
 
 
-  # Production React frontend served through Nginx
+  # React frontend + Nginx reverse proxy
   frontend:
     build:
       context: ./frontend
@@ -85,8 +80,6 @@ services:
 
 volumes:
 
-  # Persistent PostgreSQL database storage
   postgres-data:
 
-  # Persistent Hugging Face model cache
   huggingface-cache:

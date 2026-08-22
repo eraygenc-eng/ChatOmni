@@ -11,14 +11,15 @@ ENV PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install Git for the RAG package
+# Install git for the RAG package
 # and Docker CLI for the code execution sandbox
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Python dependencies first to take advantage of Docker layer caching
+# Copy Python dependency list first
+# so Docker can reuse this layer when source code changes
 COPY requirements.txt .
 
 # Upgrade pip
@@ -28,22 +29,23 @@ RUN python -m pip install --upgrade pip
 RUN pip install -r requirements.txt
 
 # Install the reusable RAG PDF Assistant package from GitHub
-# Dependencies are managed through ChatOmni's requirements.txt
+# Its dependencies are already managed by requirements.txt
 RUN pip install --no-deps \
     "git+https://github.com/eraygenc-eng/rag-pdf-assistant.git"
 
-# Copy the ChatOmni backend source code into the container
+# Copy ChatOmni backend source code
 COPY . .
 
-# Create runtime upload directories
+# Create persistent runtime directories
 RUN mkdir -p \
     uploads \
     uploads/images \
     uploads/code \
-    uploads/generated
+    uploads/generated \
+    projects_data
 
 # FastAPI port
 EXPOSE 8000
 
-# Start the FastAPI application
+# Start FastAPI
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

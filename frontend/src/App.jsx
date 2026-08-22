@@ -19,7 +19,7 @@ const TOOL_MARKER =
 
 
 const API_BASE_URL =
-    'http://127.0.0.1:8000';
+    '/api';
 
 
 const AUTH_TOKEN_KEY =
@@ -717,7 +717,7 @@ function GeneratedFileCard({
 
 
     const downloadUrl =
-        `http://127.0.0.1:8000/generated-files/${
+        `${API_BASE_URL}/generated-files/${
             encodeURIComponent(
                 file.file_id
             )
@@ -2011,7 +2011,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    'http://127.0.0.1:8000/chats'
+                    `${API_BASE_URL}/chats`
                 );
 
 
@@ -2062,7 +2062,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    'http://127.0.0.1:8000/projects'
+                    `${API_BASE_URL}/projects`
                 );
 
 
@@ -2125,7 +2125,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    `http://127.0.0.1:8000/projects/${
+                    `${API_BASE_URL}/projects/${
                         encodeURIComponent(
                             projectId
                         )
@@ -3022,7 +3022,7 @@ function App() {
 
                 const uploadResponse =
                     await authFetch(
-                        'http://127.0.0.1:8000/upload-pdf',
+                        `${API_BASE_URL}/upload-pdf`,
 
                         {
                             method:
@@ -3102,7 +3102,7 @@ function App() {
 
                 const uploadResponse =
                     await authFetch(
-                        'http://127.0.0.1:8000/upload-image',
+                        `${API_BASE_URL}/upload-image`,
 
                         {
                             method:
@@ -3200,7 +3200,7 @@ function App() {
 
                 const uploadResponse =
                     await authFetch(
-                        'http://127.0.0.1:8000/upload-code',
+                        `${API_BASE_URL}/upload-code`,
 
                         {
                             method:
@@ -3315,7 +3315,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    'http://127.0.0.1:8000/chat/stream',
+                    `${API_BASE_URL}/chat/stream`,
 
                     {
                         method:
@@ -4484,7 +4484,7 @@ function App() {
 
             const createResponse =
                 await authFetch(
-                    'http://127.0.0.1:8000/projects',
+                    `${API_BASE_URL}/projects`,
 
                     {
                         method:
@@ -4576,7 +4576,7 @@ function App() {
 
             const uploadResponse =
                 await authFetch(
-                    `http://127.0.0.1:8000/projects/${
+                    `${API_BASE_URL}/projects/${
                         encodeURIComponent(
                             project.project_id
                         )
@@ -4767,7 +4767,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    `http://127.0.0.1:8000/chats/${
+                    `${API_BASE_URL}/chats/${
                         encodeURIComponent(
                             selectedChatId
                         )
@@ -4974,7 +4974,7 @@ function App() {
 
             const response =
                 await authFetch(
-                    `http://127.0.0.1:8000/chats/${
+                    `${API_BASE_URL}/chats/${
                         encodeURIComponent(
                             chat.chat_id
                         )
@@ -5132,7 +5132,7 @@ This will permanently delete the project, its project chats, and its stored file
 
             const response =
                 await authFetch(
-                    `http://127.0.0.1:8000/projects/${
+                    `${API_BASE_URL}/projects/${
                         encodeURIComponent(
                             project.project_id
                         )

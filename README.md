@@ -22,7 +22,18 @@ The project combines general-purpose conversational reasoning with specialized t
 
 Unlike a traditional question-answering chatbot, ChatOmni is designed as a **tool-using AI agent**. The selected language model can decide whether a request should be answered directly or whether a specialized tool should be called.
 
-The main application features are now complete. The remaining work is focused on packaging the final version with Docker and deploying it on AWS.
+The core application is feature-complete, fully Dockerized, and deployed on **AWS EC2**. Nginx serves the React production build and acts as a reverse proxy for the FastAPI API, while Docker Compose orchestrates the frontend, backend, PostgreSQL, persistent storage, and sandbox runtime.
+
+## Live Demo
+
+> The deployment URL and short demo video will be added here after the final public endpoint and recording are ready.
+
+- **Live Application:** `[DEPLOYMENT_URL_HERE]`
+- **Short Demo Video:** `[VIDEO_URL_HERE]`
+
+The demo video is intended to provide a quick overview of the interface and main workflows without requiring visitors to open the live deployment.
+
+---
 
 ## Architecture Overview
 
@@ -30,53 +41,61 @@ The main application features are now complete. The remaining work is focused on
                                   User
                                    │
                                    ▼
-                         React + Vite Frontend
-                                   │
-                          Login / Register / JWT
+                            HTTPS / Domain
                                    │
                                    ▼
-                              FastAPI API
+                              AWS EC2
                                    │
-          ┌────────────────────────┼────────────────────────┐
-          │                        │                        │
-          ▼                        ▼                        ▼
-   Authentication            Chat / Agent APIs        Project / File APIs
-          │                        │                        │
-          │                        ▼                        │
-          │                 Model Selection                 │
-          │                 Luna / Terra                    │
-          │                        │                        │
-          │                        ▼                        │
-          │                  ChatOmni Agent                 │
-          │                        │                        │
-          │       ┌────────────────┼────────────────┐       │
-          │       │                │                │       │
-          │       ▼                ▼                ▼       │
-          │   Direct Reply       Tools           Memory     │
-          │                        │                │       │
-          │      ┌─────────────────┼────────────────┐       │
-          │      │        │        │       │        │       │
-          │      ▼        ▼        ▼       ▼        ▼       │
-          │     Web   Calculator Currency  RAG   Sandbox    │
-          │                                      / Files    │
-          │                                                │
-          └──────────────────────┬─────────────────────────┘
-                                 │
-                    ┌────────────┴────────────┐
-                    │                         │
-                    ▼                         ▼
-                PostgreSQL              Persistent Files
-                    │                         │
-          ┌─────────┼─────────┐      ┌────────┼────────┐
-          │         │         │      │        │        │
-          ▼         ▼         ▼      ▼        ▼        ▼
-        Users     Chats     Memory  Projects Images   Code
-                    │
-                    ▼
-            LangGraph Checkpoints
+                                   ▼
+                                Nginx
+                          ┌────────┴────────┐
+                          │                 │
+                          ▼                 ▼
+                 React Production       /api/*
+                     Frontend               │
+                                            ▼
+                                         FastAPI
+                                            │
+                 ┌──────────────────────────┼──────────────────────────┐
+                 │                          │                          │
+                 ▼                          ▼                          ▼
+          Authentication               Chat / Agent              Projects / Files
+                 │                          │                          │
+                 │                          ▼                          │
+                 │                   Model Selection                   │
+                 │                   Luna / Terra                      │
+                 │                          │                          │
+                 │                          ▼                          │
+                 │                    ChatOmni Agent                   │
+                 │                          │                          │
+                 │          ┌───────────────┼───────────────┐          │
+                 │          │               │               │          │
+                 │          ▼               ▼               ▼          │
+                 │      Direct Reply       Tools          Memory       │
+                 │                          │                          │
+                 │       ┌──────────────────┼──────────────────┐       │
+                 │       │        │         │        │         │       │
+                 │       ▼        ▼         ▼        ▼         ▼       │
+                 │      Web   Calculator Currency   RAG    Sandbox     │
+                 │                                      / Generated   │
+                 │                                          Files     │
+                 └──────────────────────────┬───────────────────────────┘
+                                            │
+                              ┌─────────────┴─────────────┐
+                              │                           │
+                              ▼                           ▼
+                         PostgreSQL                 Persistent Files
+                              │                           │
+                    ┌─────────┼─────────┐        ┌────────┼────────┐
+                    │         │         │        │        │        │
+                    ▼         ▼         ▼        ▼        ▼        ▼
+                  Users     Chats     Memory   Projects  Images   Code
+                              │
+                              ▼
+                       LangGraph Checkpoints
 ```
 
-At runtime, authenticated users receive their own application context. Conversation threads are namespaced per user, project ownership is checked with the authenticated user ID, and protected upload/download requests require a valid JWT.
+At runtime, authenticated users receive their own application context. Conversation threads are namespaced per user, project ownership is checked with the authenticated user ID, and protected upload/download requests require a valid JWT. In production, browser requests enter through Nginx; frontend routes are served by React and `/api/*` requests are proxied internally to FastAPI.
 
 ---
 
@@ -1343,16 +1362,19 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 - .NET SDK
 - Go
 
-## Containerization & Local Runtime
+## Containerization & Deployment
 
 - Docker Compose
 - Dockerized FastAPI backend
 - React production build served through Nginx
+- Nginx reverse proxy for `/api/*` requests
+- Backend isolated from direct public host access
 - PostgreSQL 18 Alpine container
 - Persistent PostgreSQL Docker volume
 - Persistent Hugging Face model cache
-- Host-mounted upload storage
+- Host-mounted upload and project storage
 - Docker socket integration for isolated code sandbox containers
+- AWS EC2 production deployment
 
 ---
 
@@ -1376,6 +1398,7 @@ chatomni/
 │
 ├── frontend/
 │   ├── Dockerfile
+│   ├── nginx.conf
 │   ├── .dockerignore
 │   ├── package.json
 │   ├── package-lock.json
@@ -1383,6 +1406,8 @@ chatomni/
 │       ├── App.jsx
 │       ├── App.css
 │       └── index.css
+│
+├── projects_data/
 │
 ├── sandbox/
 │   ├── python/
@@ -1425,7 +1450,7 @@ chatomni/
 
 The root `Dockerfile` builds the FastAPI backend image.
 
-The frontend `Dockerfile` builds the React application and serves the production build through Nginx.
+The frontend `Dockerfile` builds the React application and serves the production build through Nginx. `frontend/nginx.conf` also configures Nginx as a reverse proxy, forwarding `/api/*` requests to the FastAPI backend over the Docker network.
 
 `docker-compose.yml` orchestrates the frontend, backend, and PostgreSQL services while keeping PostgreSQL data and Hugging Face model downloads persistent across container recreation.
 
@@ -1435,7 +1460,7 @@ The separately developed `rag_pdf_assistant` package is installed into the backe
 
 # Dockerized Local Application
 
-ChatOmni can now run as a complete local Docker application.
+ChatOmni runs as a complete multi-container Docker application locally and uses the same containerized architecture as the AWS EC2 deployment.
 
 The Docker setup includes:
 
@@ -1472,7 +1497,7 @@ Uploaded and generated files are mounted from the local `uploads/` directory.
 
 The backend also mounts the Docker socket so the existing Code Sandbox can create short-lived isolated execution containers when code execution is requested.
 
-The local Docker foundation is already available. Before AWS deployment, the final authentication- and project-enabled build will be rebuilt and verified through Docker Compose as the deployment candidate.
+Nginx is the single application entry point. It serves the React production build and forwards `/api/*` requests to the FastAPI service over the internal Docker network. The FastAPI container is therefore not exposed directly through a host port in the final Docker Compose configuration.
 
 ## Local Docker Requirements
 
@@ -1546,15 +1571,14 @@ docker compose up --build
 After startup:
 
 ```text
-Frontend:
+Application:
 http://localhost:5173
 
-Backend:
-http://localhost:8000
-
-Health Check:
-http://localhost:8000/health
+Health Check through Nginx:
+http://localhost:5173/api/health
 ```
+
+The backend is intentionally reached through Nginx rather than being exposed directly on `localhost:8000`.
 
 The first build may take longer because backend dependencies and model-related components need to be downloaded.
 
@@ -1591,42 +1615,49 @@ docker compose up
 A simplified view of the current system:
 
 ```text
-                         Browser
-                            │
-                            ▼
-                  React Production Build
-                            │
-                            ▼
-                          Nginx
-                            │
-                            ▼
-                         FastAPI
-                            │
-               ┌────────────┼────────────┐
-               │            │            │
-               ▼            ▼            ▼
-             Auth      ChatOmni Agent   Projects / Uploads
-               │            │            │
-               │     ┌──────┼──────┐     │
-               │     │      │      │     │
-               │     ▼      ▼      ▼     │
-               │    Web   Currency RAG   │
-               │            │            │
-               │         Sandbox         │
-               │            │            │
-               └────────────┼────────────┘
-                            │
-                     LangGraph Runtime
-                            │
-               ┌────────────┼────────────┐
-               │            │            │
-               ▼            ▼            ▼
-             Users     PostgreSQL     Docker Socket
-                          │                │
-                  ┌───────┼───────┐        ▼
-                  │       │       │   Temporary Sandbox
-                  ▼       ▼       ▼      Containers
-                Chats   Memory  Projects
+                           Browser
+                              │
+                              ▼
+                         HTTPS / Domain
+                              │
+                              ▼
+                           AWS EC2
+                              │
+                              ▼
+                            Nginx
+                       ┌──────┴──────┐
+                       │             │
+                       ▼             ▼
+                 React Frontend    /api/*
+                                     │
+                                     ▼
+                                   FastAPI
+                                     │
+                   ┌─────────────────┼─────────────────┐
+                   │                 │                 │
+                   ▼                 ▼                 ▼
+                 Auth          ChatOmni Agent    Projects / Uploads
+                   │                 │                 │
+                   │          ┌──────┼──────┐          │
+                   │          │      │      │          │
+                   │          ▼      ▼      ▼          │
+                   │         Web  Currency  RAG        │
+                   │                 │                 │
+                   │              Sandbox             │
+                   │                 │                 │
+                   └─────────────────┼─────────────────┘
+                                     │
+                              LangGraph Runtime
+                                     │
+                   ┌─────────────────┼─────────────────┐
+                   │                 │                 │
+                   ▼                 ▼                 ▼
+                 Users          PostgreSQL       Docker Socket
+                                     │                 │
+                              ┌──────┼──────┐           ▼
+                              │      │      │      Temporary Sandbox
+                              ▼      ▼      ▼         Containers
+                            Chats  Memory Projects
 ```
 
 Authentication resolves every protected request to a unique user ID.
@@ -1785,58 +1816,65 @@ CODE   hello.py   Download
 
 ---
 
-# Next Development Step
+# AWS EC2 Deployment
 
-The core ChatOmni feature set is complete.
+ChatOmni is deployed on **AWS EC2** using the same Docker Compose architecture verified locally.
 
-No additional application features are currently planned for this version.
-
-## Final Dockerization and AWS Deployment
-
-The remaining development step is to package the current authentication- and project-enabled version as the final Docker deployment build and deploy it on AWS.
-
-The deployment flow will be:
+The production deployment keeps the application modular:
 
 ```text
-Current Feature-Complete ChatOmni
-              │
-              ▼
-      Final Docker Build
-              │
-              ▼
-   Docker Compose Verification
-              │
-              ▼
-      AWS Infrastructure
-              │
-      ┌───────┼────────┐
-      │       │        │
-      ▼       ▼        ▼
-   Frontend  Backend  PostgreSQL
-              │
-              ▼
-      Sandbox Runtime
-              │
-              ▼
-       Public Deployment
+GitHub Repository
+       │
+       ▼
+     AWS EC2
+       │
+       ▼
+Docker Compose
+       │
+       ├── chatomni-frontend
+       │      └── Nginx + React
+       │
+       ├── chatomni-backend
+       │      └── FastAPI + ChatOmni Agent
+       │
+       └── chatomni-postgres
+              └── Persistent PostgreSQL Data
 ```
 
-The final deployment work includes:
+Nginx acts as the public application gateway:
 
-- Rebuilding the current application with Docker
-- Verifying authentication inside the Dockerized environment
-- Verifying persistent chats, memory, and projects
-- Verifying PDF, image, and code uploads
-- Verifying generated-file downloads
-- Verifying the multi-language Code Sandbox
-- Configuring production environment variables and secrets
-- Deploying the frontend and FastAPI backend on AWS
-- Providing persistent PostgreSQL storage
-- Configuring the Docker runtime required by the Code Sandbox
-- Keeping infrastructure costs manageable
-- Verifying the deployed application end to end
+```text
+User
+  │
+  ▼
+HTTPS / Domain
+  │
+  ▼
+Nginx
+  │
+  ├── /        → React frontend
+  │
+  └── /api/*   → FastAPI backend
+```
 
-After this step, the current ChatOmni version will be considered complete.
+The backend is not exposed directly as a separate public `:8000` service. Browser requests use the same origin and API traffic is forwarded internally through Nginx.
+
+Production configuration is provided through environment variables rather than being committed to the repository. Sensitive values include:
+
+```text
+OPENAI_API_KEY
+POSTGRES_PASSWORD
+JWT_SECRET_KEY
+```
+
+Persistent PostgreSQL data is stored outside the lifecycle of individual application containers, and `uploads/` and `projects_data/` are mounted so user-created application data survives container recreation.
+
+## Deployment Links
+
+- **Live Application:** `[DEPLOYMENT_URL_HERE]`
+- **Short Demo Video:** `[VIDEO_URL_HERE]`
+
+The live URL will be added after the final public endpoint/domain is confirmed. A short demo video will also be linked so visitors can quickly understand the interface, authentication flow, chats, projects, tools, and overall user experience without opening the live application.
 
 ---
 
@@ -1892,7 +1930,7 @@ The architecture keeps the agent, tools, memory, projects, authentication, and e
 
 # Project Status
 
-**Feature Complete — Deployment Pending**
+**Feature Complete — Dockerized and Deployed on AWS EC2**
 
 ## Implemented
 
@@ -1984,12 +2022,17 @@ The architecture keeps the agent, tools, memory, projects, authentication, and e
 - [x] Docker socket integration for Code Sandbox execution
 - [x] Simple Docker-based local distribution
 - [x] Docker restart persistence verification
+- [x] Custom Nginx reverse-proxy configuration
+- [x] `/api/*` routing from Nginx to FastAPI
+- [x] Backend removed from direct public host exposure
+- [x] Final Docker Compose production verification
+- [x] AWS EC2 deployment
+- [x] End-to-end deployed application verification
 
 ## Remaining
 
-- [ ] Build and verify the final Docker image for the current feature-complete version
-- [ ] Deploy ChatOmni on AWS
-- [ ] Perform final end-to-end deployment verification
+- [ ] Add the final public deployment URL to this README
+- [ ] Add a short demo video
 
 ---
 

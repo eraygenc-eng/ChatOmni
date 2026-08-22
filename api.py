@@ -1241,14 +1241,14 @@ def remove_chat(
 
 
     delete_chat(
-        thread_id,
+        clean_chat_id,
         user["id"]
     )
 
 
     return {
         "status": "ok",
-        "chat_id": thread_id,
+        "chat_id": clean_chat_id,
     }
 
 
