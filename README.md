@@ -24,14 +24,18 @@ Unlike a traditional question-answering chatbot, ChatOmni is designed as a **too
 
 The core application is feature-complete, fully Dockerized, and deployed on **AWS EC2**. Nginx serves the React production build and acts as a reverse proxy for the FastAPI API, while Docker Compose orchestrates the frontend, backend, PostgreSQL, persistent storage, and sandbox runtime.
 
-## Live Demo
+## Live Deployment
 
-> The deployment URL and short demo video will be added here after the final public endpoint and recording are ready.
+- **Live Application:** [http://63.183.71.155](http://63.183.71.155)
+- **Demo Video:** [Watch ChatOmni Demo on YouTube](https://youtu.be/_QjIn1FM8JY)
 
-- **Live Application:** `[DEPLOYMENT_URL_HERE]`
-- **Short Demo Video:** `[VIDEO_URL_HERE]`
-
-The demo video is intended to provide a quick overview of the interface and main workflows without requiring visitors to open the live deployment.
+> **Public Deployment Notice**
+>
+> ChatOmni is a complete working project deployed on AWS EC2. The public instance is available for portfolio review and hands-on evaluation, but it is not intended to remain online 24/7 because of cloud infrastructure costs.
+>
+> The current public endpoint uses **HTTP rather than HTTPS**. Please do not use real, sensitive, or reused passwords when creating an account. Use temporary test credentials only.
+>
+> If the deployment is offline when you would like to review the project, please contact me by email and I can start the AWS instance for evaluation.
 
 ---
 
@@ -41,7 +45,7 @@ The demo video is intended to provide a quick overview of the interface and main
                                   User
                                    │
                                    ▼
-                            HTTPS / Domain
+                            HTTP / Elastic IP
                                    │
                                    ▼
                               AWS EC2
@@ -1618,7 +1622,7 @@ A simplified view of the current system:
                            Browser
                               │
                               ▼
-                         HTTPS / Domain
+                         HTTP / Elastic IP
                               │
                               ▼
                            AWS EC2
@@ -1820,6 +1824,8 @@ CODE   hello.py   Download
 
 ChatOmni is deployed on **AWS EC2** using the same Docker Compose architecture verified locally.
 
+The public deployment is exposed through the Elastic IP **`63.183.71.155`**, with Nginx acting as the single entry point for both the React frontend and `/api/*` traffic.
+
 The production deployment keeps the application modular:
 
 ```text
@@ -1847,7 +1853,7 @@ Nginx acts as the public application gateway:
 User
   │
   ▼
-HTTPS / Domain
+HTTP / Elastic IP
   │
   ▼
 Nginx
@@ -1869,12 +1875,16 @@ JWT_SECRET_KEY
 
 Persistent PostgreSQL data is stored outside the lifecycle of individual application containers, and `uploads/` and `projects_data/` are mounted so user-created application data survives container recreation.
 
-## Deployment Links
+## Live Deployment
 
-- **Live Application:** `[DEPLOYMENT_URL_HERE]`
-- **Short Demo Video:** `[VIDEO_URL_HERE]`
+- **Public Endpoint:** [http://63.183.71.155](http://63.183.71.155)
+- **Elastic IP:** `63.183.71.155`
 
-The live URL will be added after the final public endpoint/domain is confirmed. A short demo video will also be linked so visitors can quickly understand the interface, authentication flow, chats, projects, tools, and overall user experience without opening the live application.
+The AWS EC2 instance uses an Elastic IP so the public address remains stable across instance stop/start cycles.
+
+The public endpoint currently uses HTTP. Because this deployment is intended for short-term portfolio review and evaluation, a dedicated domain and TLS certificate are not currently configured. Visitors should use temporary test credentials rather than real or reused passwords.
+
+To control cloud infrastructure costs, the EC2 instance may be stopped when it is not actively being reviewed. If the application is offline when you would like to evaluate it, please contact me by email and I can start the instance.
 
 ---
 
@@ -1932,107 +1942,9 @@ The architecture keeps the agent, tools, memory, projects, authentication, and e
 
 **Feature Complete — Dockerized and Deployed on AWS EC2**
 
-## Implemented
+ChatOmni's planned core application features are implemented. The system runs as a multi-user, persistent, containerized AI application with React, FastAPI, PostgreSQL, Nginx, Docker Compose, isolated code-execution sandboxes, and AWS EC2 deployment.
 
-- [x] OpenAI LLM integration
-- [x] GPT-5.6 Luna support
-- [x] GPT-5.6 Terra support
-- [x] Manual Luna / Terra model selection
-- [x] Luna as the default model
-- [x] Per-request backend model selection
-- [x] Cached agent configurations for Luna and Terra
-- [x] Local task-complexity classification
-- [x] Task-fit model recommendation hints
-- [x] One-click model switching from recommendation hints
-- [x] Model switching without losing conversation continuity
-- [x] LangChain agent architecture
-- [x] LangGraph integration
-- [x] Turkish and English interaction
-- [x] General conversational responses
-- [x] Calculator tool
-- [x] Real-time web search
-- [x] Web source extraction
-- [x] Currency conversion tool
-- [x] RAG PDF Assistant integration
-- [x] Dynamic PDF loading
-- [x] PDF upload from React
-- [x] Multi-stage RAG retrieval
-- [x] Query rewriting
-- [x] Exact-term retrieval
-- [x] CrossEncoder reranking
-- [x] Multi-tool agent behavior
-- [x] True response streaming
-- [x] Stop-generation control
-- [x] Persistent conversation state
-- [x] PostgreSQL-backed LangGraph checkpointer
-- [x] Persistent long-term memory
-- [x] Multiple chat sessions
-- [x] Reopening previous conversations
-- [x] Chat deletion
-- [x] Automatic chat titles
-- [x] React graphical chat interface
-- [x] Dark and light themes
-- [x] Collapsible sidebar
-- [x] Markdown rendering
-- [x] LaTeX rendering
-- [x] Tool-use indicators
-- [x] Image upload
-- [x] Screenshot paste support
-- [x] Image and screenshot understanding
-- [x] Code block rendering
-- [x] Code block copy button
-- [x] Code and text file uploads
-- [x] Python code execution
-- [x] JavaScript code execution
-- [x] Java code execution
-- [x] C code execution
-- [x] C++ code execution
-- [x] C# code execution
-- [x] Go code execution
-- [x] Docker sandbox isolation
-- [x] Execution timeouts
-- [x] Code file generation
-- [x] Generated source-code downloads
-- [x] Save-As file selection in supported browsers
-- [x] User registration
-- [x] User login
-- [x] User logout
-- [x] Argon2 password hashing
-- [x] JWT authentication
-- [x] Authenticated session restoration
-- [x] Per-user conversation isolation
-- [x] Per-user LangGraph thread namespaces
-- [x] Per-user long-term memory context
-- [x] Authenticated upload endpoints
-- [x] Authenticated generated-file downloads
-- [x] Persistent Projects system
-- [x] Per-user project ownership
-- [x] ZIP codebase upload
-- [x] Persistent project files
-- [x] Project-specific chat sessions
-- [x] Scope-aware project retrieval
-- [x] Full local Docker application setup
-- [x] Dockerized FastAPI backend
-- [x] React production build served through Nginx
-- [x] Docker Compose orchestration
-- [x] PostgreSQL Docker container
-- [x] Persistent PostgreSQL Docker volume
-- [x] Persistent Hugging Face Docker cache
-- [x] Host-mounted upload/generated-file storage
-- [x] Docker socket integration for Code Sandbox execution
-- [x] Simple Docker-based local distribution
-- [x] Docker restart persistence verification
-- [x] Custom Nginx reverse-proxy configuration
-- [x] `/api/*` routing from Nginx to FastAPI
-- [x] Backend removed from direct public host exposure
-- [x] Final Docker Compose production verification
-- [x] AWS EC2 deployment
-- [x] End-to-end deployed application verification
-
-## Remaining
-
-- [ ] Add the final public deployment URL to this README
-- [ ] Add a short demo video
+The current public deployment is intentionally operated on demand rather than 24/7 to control cloud infrastructure costs.
 
 ---
 
