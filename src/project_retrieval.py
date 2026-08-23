@@ -2,7 +2,7 @@ import json
 import math
 import re
 from pathlib import Path, PurePosixPath
-
+from docx import Document
 from src.project_files import get_project_files
 
 
@@ -12,32 +12,12 @@ PROJECTS_DATA_DIR = Path(
 
 
 PROJECT_TEXT_EXTENSIONS = {
-    ".py",
-    ".js",
-    ".jsx",
-    ".ts",
-    ".tsx",
-    ".java",
-    ".c",
-    ".h",
-    ".cpp",
-    ".cc",
-    ".cxx",
-    ".hpp",
-    ".cs",
-    ".go",
-    ".rs",
-    ".php",
-    ".rb",
-    ".swift",
-    ".kt",
-    ".kts",
-    ".html",
-    ".css",
-    ".scss",
-    ".sass",
-    ".less",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
     ".json",
+    ".jsonc",
     ".xml",
     ".yaml",
     ".yml",
@@ -45,13 +25,79 @@ PROJECT_TEXT_EXTENSIONS = {
     ".ini",
     ".cfg",
     ".conf",
-    ".env",
-    ".md",
-    ".txt",
-    ".sql",
+    ".log",
+    ".properties",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs",
+    ".ts",
+    ".tsx",
+    ".py",
+    ".pyw",
+    ".java",
+    ".kt",
+    ".kts",
+    ".scala",
+    ".c",
+    ".h",
+    ".cpp",
+    ".cc",
+    ".cxx",
+    ".hpp",
+    ".cs",
+    ".vb",
+    ".fs",
+    ".fsx",
+    ".go",
+    ".rs",
+    ".swift",
+    ".dart",
+    ".php",
+    ".rb",
     ".sh",
-    ".bat",
+    ".bash",
+    ".zsh",
+    ".fish",
     ".ps1",
+    ".bat",
+    ".cmd",
+    ".sql",
+    ".graphql",
+    ".gql",
+    ".proto",
+    ".vue",
+    ".svelte",
+    ".r",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".ex",
+    ".exs",
+    ".erl",
+    ".hrl",
+    ".clj",
+    ".cljs",
+    ".cljc",
+    ".groovy",
+    ".gradle",
+    ".tex",
+    ".bib",
+    ".asm",
+    ".s",
+    ".ipynb",
+
+    # Useful project-specific text file.
+    ".env",
+
+    # Word documents.
+    ".docx",
 }
 
 
@@ -247,9 +293,75 @@ def read_project_file(
         or
         not file_path.is_file()
     ):
-
         return None
 
+    suffix = (
+        file_path
+        .suffix
+        .lower()
+    )
+
+    # DOCX files are binary ZIP-based documents,
+    # so they must be parsed with python-docx.
+    if suffix == ".docx":
+
+        try:
+
+            document = Document(
+                file_path
+            )
+
+            text_parts = []
+
+            # Extract normal paragraphs.
+            for paragraph in document.paragraphs:
+
+                text = (
+                    paragraph
+                    .text
+                    .strip()
+                )
+
+                if text:
+                    text_parts.append(
+                        text
+                    )
+
+            # Extract table contents as well.
+            for table in document.tables:
+
+                for row in table.rows:
+
+                    row_values = [
+                        cell.text.strip()
+                        for cell in row.cells
+                    ]
+
+                    if any(row_values):
+
+                        text_parts.append(
+                            " | ".join(
+                                row_values
+                            )
+                        )
+
+            document_text = (
+                "\n".join(
+                    text_parts
+                )
+                .strip()
+            )
+
+            if not document_text:
+                return None
+
+            return document_text
+
+        except Exception:
+
+            return None
+
+    # Normal source-code and text files.
     try:
 
         return file_path.read_text(

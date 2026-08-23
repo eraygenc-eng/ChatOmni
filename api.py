@@ -5,6 +5,9 @@ import shutil
 import stat
 import zipfile
 
+
+from io import BytesIO
+from docx import Document
 from pathlib import Path, PurePosixPath
 from typing import Literal
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
@@ -79,11 +82,39 @@ ALLOWED_IMAGE_TYPES = {
 }
 
 ALLOWED_CODE_EXTENSIONS = {
-    ".py",
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
+    ".json",
+    ".jsonc",
+    ".xml",
+    ".yaml",
+    ".yml",
+    ".toml",
+    ".ini",
+    ".cfg",
+    ".conf",
+    ".log",
+    ".properties",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".sass",
+    ".less",
     ".js",
+    ".jsx",
     ".mjs",
     ".cjs",
+    ".ts",
+    ".tsx",
+    ".py",
+    ".pyw",
     ".java",
+    ".kt",
+    ".kts",
+    ".scala",
     ".c",
     ".h",
     ".cpp",
@@ -91,8 +122,46 @@ ALLOWED_CODE_EXTENSIONS = {
     ".cxx",
     ".hpp",
     ".cs",
+    ".vb",
+    ".fs",
+    ".fsx",
     ".go",
-    ".txt",
+    ".rs",
+    ".swift",
+    ".dart",
+    ".php",
+    ".rb",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".fish",
+    ".ps1",
+    ".bat",
+    ".cmd",
+    ".sql",
+    ".graphql",
+    ".gql",
+    ".proto",
+    ".vue",
+    ".svelte",
+    ".r",
+    ".lua",
+    ".pl",
+    ".pm",
+    ".ex",
+    ".exs",
+    ".erl",
+    ".hrl",
+    ".clj",
+    ".cljs",
+    ".cljc",
+    ".groovy",
+    ".gradle",
+    ".tex",
+    ".bib",
+    ".asm",
+    ".s",
+    ".ipynb",
 }
 
 MAX_IMAGE_SIZE = (
@@ -101,6 +170,10 @@ MAX_IMAGE_SIZE = (
 
 MAX_CODE_FILE_SIZE = (
     200 * 1024
+)
+
+MAX_DOCUMENT_FILE_SIZE = (
+    10 * 1024 * 1024
 )
 
 MAX_PROJECT_ZIP_SIZE = (
@@ -948,7 +1021,8 @@ def list_project_chats(
 
         "chats":
             get_project_chats(
-                project_id
+                project_id,
+                user["id"]
             )
     }
 
@@ -1193,7 +1267,8 @@ def remove_project(
 
     # Finally delete the project itself.
     delete_project(
-        project_id
+        project_id,
+         user["id"]
     )
 
     return {
@@ -1512,6 +1587,134 @@ async def upload_image(
         "mime_type":
             mime_type,
     }
+
+
+@app.post("/upload-document")
+async def upload_document(
+    file: UploadFile = File(...),
+    user=Depends(get_current_user),
+):
+    original_name = Path(
+        file.filename
+        or
+        "document.docx"
+    ).name
+
+    suffix = (
+        Path(original_name)
+        .suffix
+        .lower()
+    )
+
+    if suffix != ".docx":
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported document format. "
+                "Currently supported: DOCX."
+            ),
+        )
+
+    file_bytes = await file.read()
+
+    if not file_bytes:
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded document is empty.",
+        )
+
+    if (
+        len(file_bytes)
+        >
+        MAX_DOCUMENT_FILE_SIZE
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Document is too large. "
+                "Maximum size is 10 MB."
+            ),
+        )
+
+    try:
+        document = Document(
+            BytesIO(file_bytes)
+        )
+
+        text_parts = []
+
+        # Extract normal paragraphs.
+        for paragraph in document.paragraphs:
+            text = paragraph.text.strip()
+
+            if text:
+                text_parts.append(text)
+
+        # Extract table contents as well.
+        for table in document.tables:
+            for row in table.rows:
+                row_values = [
+                    cell.text.strip()
+                    for cell in row.cells
+                ]
+
+                if any(row_values):
+                    text_parts.append(
+                        " | ".join(row_values)
+                    )
+
+        document_text = "\n".join(
+            text_parts
+        ).strip()
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The DOCX file could not be read: "
+                f"{error}"
+            ),
+        )
+
+    if not document_text:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No readable text was found "
+                "inside the DOCX file."
+            ),
+        )
+
+    document_id = (
+        f"{uuid.uuid4().hex}_"
+        f"{Path(original_name).stem}.txt"
+    )
+
+    saved_path = (
+        CODE_UPLOAD_DIR
+        /
+        document_id
+    )
+
+    try:
+        saved_path.write_text(
+            document_text,
+            encoding="utf-8",
+        )
+
+    except Exception as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        )
+
+    return {
+        "status": "ok",
+        "code_id": document_id,
+        "filename": original_name,
+        "extension": suffix,
+    }
+
 
 @app.post("/upload-code")
 async def upload_code(

@@ -26,6 +26,97 @@ const AUTH_TOKEN_KEY =
     'chatomni_access_token';
 
 
+const SUPPORTED_TEXT_FILE_EXTENSIONS = [
+    '.txt',
+    '.md',
+    '.markdown',
+    '.csv',
+    '.json',
+    '.jsonc',
+    '.xml',
+    '.yaml',
+    '.yml',
+    '.toml',
+    '.ini',
+    '.cfg',
+    '.conf',
+    '.log',
+    '.properties',
+    '.html',
+    '.htm',
+    '.css',
+    '.scss',
+    '.sass',
+    '.less',
+    '.js',
+    '.jsx',
+    '.mjs',
+    '.cjs',
+    '.ts',
+    '.tsx',
+    '.py',
+    '.pyw',
+    '.java',
+    '.kt',
+    '.kts',
+    '.scala',
+    '.c',
+    '.h',
+    '.cpp',
+    '.cc',
+    '.cxx',
+    '.hpp',
+    '.cs',
+    '.vb',
+    '.fs',
+    '.fsx',
+    '.go',
+    '.rs',
+    '.swift',
+    '.dart',
+    '.php',
+    '.rb',
+    '.sh',
+    '.bash',
+    '.zsh',
+    '.fish',
+    '.ps1',
+    '.bat',
+    '.cmd',
+    '.sql',
+    '.graphql',
+    '.gql',
+    '.proto',
+    '.vue',
+    '.svelte',
+    '.r',
+    '.lua',
+    '.pl',
+    '.pm',
+    '.ex',
+    '.exs',
+    '.erl',
+    '.hrl',
+    '.clj',
+    '.cljs',
+    '.cljc',
+    '.groovy',
+    '.gradle',
+    '.tex',
+    '.bib',
+    '.asm',
+    '.s',
+    '.ipynb',
+];
+
+
+const SUPPORTED_FILE_ACCEPT = [
+    '.pdf',
+    '.docx',
+    ...SUPPORTED_TEXT_FILE_EXTENSIONS,
+].join(',');
+
+
 // ========================================
 // CLIENT ID
 // ========================================
@@ -1543,19 +1634,13 @@ function App() {
     // REFS
     // ========================================
 
-    const pdfInputRef =
+    const fileInputRef =
         useRef(
             null
         );
 
 
     const imageInputRef =
-        useRef(
-            null
-        );
-
-
-    const codeInputRef =
         useRef(
             null
         );
@@ -2966,17 +3051,23 @@ function App() {
 
                     : attachment
                         ?.category ===
-                        'image'
+                        'document'
 
-                        ? 'Analyze this image and explain the important points.'
+                        ? 'Briefly summarize this document.'
 
                         : attachment
                             ?.category ===
-                            'code'
+                            'image'
 
-                            ? 'Review this code or text file and explain what it does.'
+                            ? 'Analyze this image and explain the important points.'
 
-                            : ''
+                            : attachment
+                                ?.category ===
+                                'code'
+
+                                ? 'Review this file and explain the important points.'
+
+                                : ''
             );
 
 
@@ -3183,6 +3274,104 @@ function App() {
 
                     throw new Error(
                         errorMessage
+                    );
+                }
+            }
+
+
+            // ========================================
+            // DOCX UPLOAD
+            // ========================================
+
+            if (
+                attachment
+                    ?.category ===
+                'document'
+            ) {
+
+                const formData =
+                    new FormData();
+
+
+                formData.append(
+                    'file',
+                    attachment.file
+                );
+
+
+                const uploadResponse =
+                    await authFetch(
+                        `${API_BASE_URL}/upload-document`,
+
+                        {
+                            method:
+                                'POST',
+
+                            body:
+                                formData,
+
+                            signal:
+                                controller.signal,
+                        }
+                    );
+
+
+                if (
+                    !uploadResponse.ok
+                ) {
+
+                    let errorMessage =
+                        `Document upload failed: ${
+                            uploadResponse.status
+                        }`;
+
+
+                    try {
+
+                        const errorData =
+                            await uploadResponse
+                                .json();
+
+
+                        if (
+                            errorData
+                                ?.detail
+                        ) {
+
+                            errorMessage =
+                                `Document upload failed: ${
+                                    errorData.detail
+                                }`;
+                        }
+
+                    }
+
+                    catch {
+
+                        // Keep default message.
+                    }
+
+
+                    throw new Error(
+                        errorMessage
+                    );
+                }
+
+
+                const uploadData =
+                    await uploadResponse
+                        .json();
+
+
+                codeId =
+                    uploadData
+                        .code_id;
+
+
+                if (!codeId) {
+
+                    throw new Error(
+                        'Document upload failed: backend did not return a file ID.'
                     );
                 }
             }
@@ -3707,6 +3896,11 @@ function App() {
                     ||
                     error.message
                         ?.startsWith(
+                            'Document upload failed:'
+                        )
+                    ||
+                    error.message
+                        ?.startsWith(
                             'Image upload failed:'
                         )
                     ||
@@ -3856,14 +4050,14 @@ function App() {
     }
 
 
-    function choosePDF() {
+    function chooseFile() {
 
         setAttachMenuOpen(
             false
         );
 
 
-        pdfInputRef
+        fileInputRef
             .current
             ?.click();
     }
@@ -3882,24 +4076,11 @@ function App() {
     }
 
 
-    function chooseCode() {
-
-        setAttachMenuOpen(
-            false
-        );
-
-
-        codeInputRef
-            .current
-            ?.click();
-    }
-
-
     // ========================================
-    // PDF SELECT
+    // FILE SELECT
     // ========================================
 
-    function handlePDFChange(
+    function handleFileChange(
         event
     ) {
 
@@ -3908,7 +4089,25 @@ function App() {
                 .files[0];
 
 
-        if (file) {
+        if (!file) {
+
+            event.target.value =
+                '';
+
+            return;
+        }
+
+
+        const lowerName =
+            file.name
+                .toLowerCase();
+
+
+        if (
+            lowerName.endsWith(
+                '.pdf'
+            )
+        ) {
 
             setSelectedFile({
                 file,
@@ -3917,12 +4116,128 @@ function App() {
                     file.name,
 
                 type:
-                    file.type,
+                    file.type
+                    ||
+                    'application/pdf',
 
                 category:
                     'pdf',
             });
+
+
+            event.target.value =
+                '';
+
+            return;
         }
+
+
+        if (
+            lowerName.endsWith(
+                '.docx'
+            )
+        ) {
+
+            if (
+                file.size >
+                10 * 1024 * 1024
+            ) {
+
+                alert(
+                    'DOCX file is too large. Maximum size is 10 MB.'
+                );
+
+
+                event.target.value =
+                    '';
+
+                return;
+            }
+
+
+            setSelectedFile({
+                file,
+
+                name:
+                    file.name,
+
+                type:
+                    file.type
+                    ||
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+
+                category:
+                    'document',
+            });
+
+
+            event.target.value =
+                '';
+
+            return;
+        }
+
+
+        const isSupportedTextFile =
+            SUPPORTED_TEXT_FILE_EXTENSIONS
+                .some(
+                    (
+                        extension
+                    ) =>
+                        lowerName
+                            .endsWith(
+                                extension
+                            )
+                );
+
+
+        if (
+            !isSupportedTextFile
+        ) {
+
+            alert(
+                'This file format is not supported yet. Use PDF, DOCX, or a common text/code file such as TXT, MD, CSV, JSON, XML, YAML, HTML, CSS, JS, JSX, TS, TSX, Python, Java, C/C++, C#, Go, Rust, SQL, Shell, Vue, Svelte, and similar text-based formats.'
+            );
+
+
+            event.target.value =
+                '';
+
+            return;
+        }
+
+
+        if (
+            file.size >
+            200 * 1024
+        ) {
+
+            alert(
+                'Text/code file is too large. Maximum size is 200 KB.'
+            );
+
+
+            event.target.value =
+                '';
+
+            return;
+        }
+
+
+        setSelectedFile({
+            file,
+
+            name:
+                file.name,
+
+            type:
+                file.type
+                ||
+                'text/plain',
+
+            category:
+                'code',
+        });
 
 
         event.target.value =
@@ -3989,115 +4304,6 @@ function App() {
 
             category:
                 'image',
-        });
-
-
-        event.target.value =
-            '';
-    }
-
-
-    // ========================================
-    // CODE / TEXT SELECT
-    // ========================================
-
-    function handleCodeChange(
-        event
-    ) {
-
-        const file =
-            event.target
-                .files[0];
-
-
-        if (!file) {
-
-            event.target.value =
-                '';
-
-            return;
-        }
-
-
-        const allowedExtensions = [
-            '.py',
-            '.js',
-            '.mjs',
-            '.cjs',
-            '.java',
-            '.c',
-            '.h',
-            '.cpp',
-            '.cc',
-            '.cxx',
-            '.hpp',
-            '.cs',
-            '.go',
-            '.txt',
-        ];
-
-
-        const lowerName =
-            file.name
-                .toLowerCase();
-
-
-        const isAllowed =
-            allowedExtensions.some(
-                (
-                    extension
-                ) =>
-                    lowerName
-                        .endsWith(
-                            extension
-                        )
-            );
-
-
-        if (!isAllowed) {
-
-            alert(
-                'Supported code/text formats are PY, JS, JAVA, C, C++, C#, GO, and TXT.'
-            );
-
-
-            event.target.value =
-                '';
-
-            return;
-        }
-
-
-        if (
-            file.size >
-            200 * 1024
-        ) {
-
-            alert(
-                'Code/text file is too large. Maximum size is 200 KB.'
-            );
-
-
-            event.target.value =
-                '';
-
-            return;
-        }
-
-
-        setSelectedFile({
-            file,
-
-            name:
-                file.name,
-
-            type:
-                file.type
-                ||
-                'text/plain',
-
-            category:
-                'code',
         });
 
 
@@ -5406,17 +5612,23 @@ This will permanently delete the project, its project chats, and its stored file
                                     {
                                         selectedFile
                                             .category ===
-                                        'pdf'
+                                        'image'
 
-                                            ? 'PDF'
+                                            ? 'IMG'
 
                                             : selectedFile
                                                 .category ===
-                                            'image'
+                                            'pdf'
 
-                                                ? 'IMG'
+                                                ? 'PDF'
 
-                                                : 'CODE'
+                                                : selectedFile
+                                                    .category ===
+                                                'document'
+
+                                                    ? 'DOC'
+
+                                                    : 'FILE'
                                     }
                                 </span>
 
@@ -5473,15 +5685,15 @@ This will permanently delete the project, its project chats, and its stored file
                                     <button
                                         className="attach-option"
                                         onClick={
-                                            choosePDF
+                                            chooseFile
                                         }
                                     >
                                         <span className="attach-option-icon">
-                                            PDF
+                                            FILE
                                         </span>
 
                                         <span>
-                                            Upload PDF
+                                            Upload File
                                         </span>
                                     </button>
 
@@ -5501,22 +5713,6 @@ This will permanently delete the project, its project chats, and its stored file
                                         </span>
                                     </button>
 
-
-                                    <button
-                                        className="attach-option"
-                                        onClick={
-                                            chooseCode
-                                        }
-                                    >
-                                        <span className="attach-option-icon">
-                                            CODE
-                                        </span>
-
-                                        <span>
-                                            Upload Code / Text
-                                        </span>
-                                    </button>
-
                                 </div>
                             )
                         }
@@ -5526,13 +5722,15 @@ This will permanently delete the project, its project chats, and its stored file
 
                     <input
                         ref={
-                            pdfInputRef
+                            fileInputRef
                         }
                         className="hidden-file-input"
                         type="file"
-                        accept="application/pdf"
+                        accept={
+                            SUPPORTED_FILE_ACCEPT
+                        }
                         onChange={
-                            handlePDFChange
+                            handleFileChange
                         }
                     />
 
@@ -5546,19 +5744,6 @@ This will permanently delete the project, its project chats, and its stored file
                         accept="image/png,image/jpeg,image/webp"
                         onChange={
                             handleImageChange
-                        }
-                    />
-
-
-                    <input
-                        ref={
-                            codeInputRef
-                        }
-                        className="hidden-file-input"
-                        type="file"
-                        accept=".py,.js,.mjs,.cjs,.java,.c,.h,.cpp,.cc,.cxx,.hpp,.cs,.go,.txt"
-                        onChange={
-                            handleCodeChange
                         }
                     />
 

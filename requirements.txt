@@ -16,6 +16,7 @@ fastapi
 uvicorn[standard]
 python-multipart
 pydantic
+python-docx
 
 # PostgreSQL
 psycopg[binary]
