@@ -26,6 +26,14 @@ const AUTH_TOKEN_KEY =
     'chatomni_access_token';
 
 
+const CHAT_RESPONSE_START_TIMEOUT_MS =
+    150 * 1000;
+
+
+const CHAT_STREAM_IDLE_TIMEOUT_MS =
+    180 * 1000;
+
+
 const SUPPORTED_TEXT_FILE_EXTENSIONS = [
     '.txt',
     '.md',
@@ -281,6 +289,67 @@ async function authFetch(
                 ),
         }
     );
+}
+
+
+async function readStreamChunkWithTimeout(
+    reader,
+    timeoutMs
+) {
+
+    let timeoutId =
+        null;
+
+
+    try {
+
+        return await Promise.race([
+            reader.read(),
+
+            new Promise(
+                (
+                    _,
+                    reject
+                ) => {
+
+                    timeoutId =
+                        window.setTimeout(
+                            () => {
+
+                                const error =
+                                    new Error(
+                                        'The response stream was idle for too long. Please try again.'
+                                    );
+
+
+                                error.name =
+                                    'StreamTimeoutError';
+
+
+                                reject(
+                                    error
+                                );
+                            },
+                            timeoutMs
+                        );
+                }
+            ),
+        ]);
+
+    }
+
+    finally {
+
+        if (
+            timeoutId !==
+            null
+        ) {
+
+            window.clearTimeout(
+                timeoutId
+            );
+        }
+    }
 }
 
 
@@ -1682,6 +1751,12 @@ function App() {
         );
 
 
+    const streamDoneRef =
+        useRef(
+            Promise.resolve()
+        );
+
+
     const autoScrollEnabledRef =
         useRef(
             true
@@ -2637,6 +2712,39 @@ function App() {
     }
 
 
+    async function stopGenerationAndWait() {
+
+        if (
+            !abortControllerRef
+                .current
+        ) {
+            return;
+        }
+
+
+        abortControllerRef
+            .current
+            .abort();
+
+
+        await Promise.race([
+            streamDoneRef.current,
+
+            new Promise(
+                (
+                    resolve
+                ) => {
+
+                    window.setTimeout(
+                        resolve,
+                        5000
+                    );
+                }
+            ),
+        ]);
+    }
+
+
     // ========================================
     // ADD TOOL EVENT
     // ========================================
@@ -3190,6 +3298,38 @@ function App() {
                 controller;
 
 
+        let resolveStreamDone;
+
+
+        const streamDonePromise =
+            new Promise(
+                (
+                    resolve
+                ) => {
+
+                    resolveStreamDone =
+                        resolve;
+                }
+            );
+
+
+        streamDoneRef
+            .current =
+                streamDonePromise;
+
+
+        let responseStartTimeoutId =
+            null;
+
+
+        let streamReader =
+            null;
+
+
+        let timeoutErrorMessage =
+            '';
+
+
         try {
 
             let imageId =
@@ -3610,6 +3750,20 @@ function App() {
             }
 
 
+            responseStartTimeoutId =
+                window.setTimeout(
+                    () => {
+
+                        timeoutErrorMessage =
+                            'ChatOmni did not start the response in time. Please try again.';
+
+
+                        controller.abort();
+                    },
+                    CHAT_RESPONSE_START_TIMEOUT_MS
+                );
+
+
             const response =
                 await authFetch(
                     `${API_BASE_URL}/chat/stream`,
@@ -3632,6 +3786,21 @@ function App() {
                             controller.signal,
                     }
                 );
+
+
+            if (
+                responseStartTimeoutId !==
+                null
+            ) {
+
+                window.clearTimeout(
+                    responseStartTimeoutId
+                );
+
+
+                responseStartTimeoutId =
+                    null;
+            }
 
 
             if (
@@ -3684,7 +3853,7 @@ function App() {
             }
 
 
-            const reader =
+            streamReader =
                 response.body
                     .getReader();
 
@@ -3697,14 +3866,26 @@ function App() {
                 '';
 
 
+            let receivedStreamEvent =
+                false;
+
+
+            let streamCompleted =
+                false;
+
+
             while (true) {
 
                 const {
                     value,
                     done,
                 } =
-                    await reader
-                        .read();
+                    await readStreamChunkWithTimeout(
+                        streamReader,
+                        receivedStreamEvent
+                            ? CHAT_STREAM_IDLE_TIMEOUT_MS
+                            : CHAT_RESPONSE_START_TIMEOUT_MS
+                    );
 
 
                 if (done) {
@@ -3759,6 +3940,20 @@ function App() {
                             );
 
 
+                        receivedStreamEvent =
+                            true;
+
+
+                        if (
+                            event.type ===
+                            'done'
+                        ) {
+
+                            streamCompleted =
+                                true;
+                        }
+
+
                         processStreamEvent(
                             event,
                             assistantMessageId
@@ -3796,6 +3991,20 @@ function App() {
                         );
 
 
+                    receivedStreamEvent =
+                        true;
+
+
+                    if (
+                        event.type ===
+                        'done'
+                    ) {
+
+                        streamCompleted =
+                            true;
+                    }
+
+
                     processStreamEvent(
                         event,
                         assistantMessageId
@@ -3814,6 +4023,26 @@ function App() {
             }
 
 
+            if (
+                !receivedStreamEvent
+            ) {
+
+                throw new Error(
+                    'ChatOmni returned an empty response. Please try again.'
+                );
+            }
+
+
+            if (
+                !streamCompleted
+            ) {
+
+                throw new Error(
+                    'The response stream ended before completion. Please try again.'
+                );
+            }
+
+
             finishAssistantMessage(
                 assistantMessageId
             );
@@ -3822,7 +4051,90 @@ function App() {
 
         catch (error) {
 
+            const isStreamTimeout =
+                error.name ===
+                'StreamTimeoutError';
+
+
+            if (isStreamTimeout) {
+
+                timeoutErrorMessage =
+                    error.message
+                    ||
+                    'The response timed out. Please try again.';
+
+
+                controller.abort();
+            }
+
+
+            const didTimeout =
+                isStreamTimeout
+                ||
+                Boolean(
+                    timeoutErrorMessage
+                );
+
+
             if (
+                didTimeout
+                &&
+                streamReader
+            ) {
+
+                try {
+
+                    await streamReader
+                        .cancel();
+
+                }
+
+                catch {
+
+                    // The aborted stream may already be closed.
+                }
+            }
+
+
+            if (didTimeout) {
+
+                setMessages(
+                    (
+                        currentMessages
+                    ) =>
+                        currentMessages.map(
+                            (
+                                message
+                            ) =>
+                                message.id ===
+                                    assistantMessageId
+
+                                    ? {
+                                        ...message,
+
+                                        isThinking:
+                                            false,
+
+                                        isComplete:
+                                            true,
+
+                                        text:
+                                            message.text
+                                            ||
+                                            timeoutErrorMessage
+                                            ||
+                                            error.message
+                                            ||
+                                            'The response timed out. Please try again.',
+                                    }
+
+                                    : message
+                        )
+                );
+
+            }
+
+            else if (
                 error.name ===
                 'AbortError'
             ) {
@@ -3888,26 +4200,67 @@ function App() {
                 );
 
 
+                const errorMessage =
+                    error
+                        ?.message
+                        ?.trim()
+                    ||
+                    '';
+
+
                 const isUploadError =
-                    error.message
-                        ?.startsWith(
+                    errorMessage
+                        .startsWith(
                             'PDF upload failed:'
                         )
                     ||
-                    error.message
-                        ?.startsWith(
+                    errorMessage
+                        .startsWith(
                             'Document upload failed:'
                         )
                     ||
-                    error.message
-                        ?.startsWith(
+                    errorMessage
+                        .startsWith(
                             'Image upload failed:'
                         )
                     ||
-                    error.message
-                        ?.startsWith(
+                    errorMessage
+                        .startsWith(
                             'Code upload failed:'
                         );
+
+
+                const isNetworkError =
+                    error instanceof TypeError
+                    &&
+                    (
+                        errorMessage ===
+                            ''
+                        ||
+                        errorMessage ===
+                            'Failed to fetch'
+                        ||
+                        errorMessage ===
+                            'Load failed'
+                        ||
+                        errorMessage.includes(
+                            'NetworkError'
+                        )
+                    );
+
+
+                const userFacingError =
+                    isUploadError
+
+                        ? errorMessage
+
+                        : isNetworkError
+
+                            ? 'ChatOmni backend could not be reached.'
+
+                            : errorMessage
+                                ||
+                                'ChatOmni backend could not be reached.';
 
 
                 setMessages(
@@ -3933,11 +4286,7 @@ function App() {
                                         text:
                                             message.text
                                             ||
-                                            (
-                                                isUploadError
-                                                    ? error.message
-                                                    : 'ChatOmni backend could not be reached.'
-                                            ),
+                                            userFacingError,
                                     }
 
                                     : message
@@ -3948,14 +4297,47 @@ function App() {
 
         finally {
 
-            abortControllerRef
-                .current =
-                    null;
+            if (
+                responseStartTimeoutId !==
+                null
+            ) {
+
+                window.clearTimeout(
+                    responseStartTimeoutId
+                );
+            }
+
+
+            if (
+                abortControllerRef.current ===
+                controller
+            ) {
+
+                abortControllerRef
+                    .current =
+                        null;
+            }
 
 
             setIsStreaming(
                 false
             );
+
+
+            if (resolveStreamDone) {
+
+                resolveStreamDone();
+            }
+
+
+            if (
+                streamDoneRef.current ===
+                streamDonePromise
+            ) {
+
+                streamDoneRef.current =
+                    Promise.resolve();
+            }
 
 
             await loadChats();
@@ -4658,10 +5040,14 @@ function App() {
         if (
             !project
                 ?.project_id
-            ||
-            isStreaming
         ) {
             return;
+        }
+
+
+        if (isStreaming) {
+
+            await stopGenerationAndWait();
         }
 
 
@@ -4708,14 +5094,18 @@ function App() {
     // NEW PROJECT ZIP PICKER
     // ========================================
 
-    function chooseProjectZip() {
+    async function chooseProjectZip() {
 
         if (
             isCreatingProject
-            ||
-            isStreaming
         ) {
             return;
+        }
+
+
+        if (isStreaming) {
+
+            await stopGenerationAndWait();
         }
 
 
@@ -5010,10 +5400,14 @@ function App() {
         if (
             !chat
                 ?.chat_id
-            ||
-            isStreaming
         ) {
             return;
+        }
+
+
+        if (isStreaming) {
+
+            await stopGenerationAndWait();
         }
 
 
@@ -5262,8 +5656,6 @@ function App() {
         if (
             !chat
                 ?.chat_id
-            ||
-            isStreaming
         ) {
             return;
         }
@@ -5281,6 +5673,17 @@ function App() {
 
         if (!confirmed) {
             return;
+        }
+
+
+        if (
+            isStreaming
+            &&
+            activeChat ===
+                chat.chat_id
+        ) {
+
+            await stopGenerationAndWait();
         }
 
 
@@ -5417,8 +5820,6 @@ function App() {
             !project
                 ?.project_id
             ||
-            isStreaming
-            ||
             isCreatingProject
         ) {
             return;
@@ -5439,6 +5840,18 @@ This will permanently delete the project, its project chats, and its stored file
 
         if (!confirmed) {
             return;
+        }
+
+
+        if (
+            isStreaming
+            &&
+            activeProject
+                ?.project_id ===
+            project.project_id
+        ) {
+
+            await stopGenerationAndWait();
         }
 
 
@@ -6367,9 +6780,6 @@ This will permanently delete the project, its project chats, and its stored file
                                 onClick={
                                     handleLogout
                                 }
-                                disabled={
-                                    isStreaming
-                                }
                             >
                                 Log out
                             </button>
@@ -6429,8 +6839,6 @@ This will permanently delete the project, its project chats, and its stored file
                                     }
                                     disabled={
                                         isCreatingProject
-                                        ||
-                                        isStreaming
                                     }
                                     title="Create a project from ZIP"
                                     aria-label="Create a project from ZIP"
@@ -6503,9 +6911,6 @@ This will permanently delete the project, its project chats, and its stored file
                                                                                 project
                                                                             )
                                                                     }
-                                                                    disabled={
-                                                                        isStreaming
-                                                                    }
                                                                     title={
                                                                         project.name
                                                                     }
@@ -6547,8 +6952,6 @@ This will permanently delete the project, its project chats, and its stored file
                                                                             )
                                                                     }
                                                                     disabled={
-                                                                        isStreaming
-                                                                        ||
                                                                         isCreatingProject
                                                                     }
                                                                     title={
@@ -6576,9 +6979,6 @@ This will permanently delete the project, its project chats, and its stored file
                                                                                     startNewProjectChat(
                                                                                         project
                                                                                     )
-                                                                            }
-                                                                            disabled={
-                                                                                isStreaming
                                                                             }
                                                                         >
 

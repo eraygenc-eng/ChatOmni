@@ -1,6 +1,7 @@
 import json
 import math
 import re
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from docx import Document
 from src.project_files import get_project_files
@@ -107,6 +108,7 @@ PROJECT_TEXT_FILENAMES = {
     "procfile",
     ".gitignore",
     ".dockerignore",
+    ".env.example",
 }
 
 
@@ -116,6 +118,76 @@ CHUNK_OVERLAP_LINES = 12
 
 SEARCH_RESULT_LIMIT = 6
 DEEP_BATCH_SIZE = 4
+
+# Maximum size of a single readable source/text file.
+MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
+
+# DOCX files may contain images and ZIP metadata,
+# so allow a larger physical file size.
+MAX_DOCX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+
+# Normal project questions should never scan an
+# unlimited number of files.
+MAX_GENERIC_SCAN_FILES = 200
+MAX_GENERIC_SCAN_BYTES = 25 * 1024 * 1024  # 25 MB
+
+# Safety limit for a whole-project deep review.
+MAX_DEEP_SCAN_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+IGNORED_PROJECT_DIRS = {
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cache",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    "coverage",
+    "target",
+    "vendor",
+    "site-packages",
+    "obj",
+}
+
+
+SENSITIVE_PROJECT_FILENAMES = {
+    ".env",
+    ".env.local",
+    ".env.development",
+    ".env.production",
+    ".env.test",
+    "credentials.json",
+    "service-account.json",
+    "service_account.json",
+}
+
+
+IMPORTANT_PROJECT_FILENAMES = {
+    "readme",
+    "readme.md",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "dockerfile",
+    "docker-compose.yml",
+    "compose.yml",
+    "main.py",
+    "app.py",
+    "api.py",
+    "index.js",
+    "index.ts",
+    "vite.config.js",
+    "vite.config.ts",
+}
 
 
 STOP_WORDS = {
@@ -214,27 +286,145 @@ def is_deep_request(
     )
 
 
-def is_text_project_file(
-    file_data: dict,
-):
-
+def is_text_project_file(file_data: dict):
     extension = (
-        file_data["extension"]
-        .casefold()
-    )
+        file_data.get("extension") or ""
+    ).casefold()
 
     file_name = (
         file_data["file_name"]
-        .casefold()
+    ).casefold()
+
+    relative_path = (
+        file_data["relative_path"]
+        .replace("\\", "/")
     )
 
+    path_parts = {
+        part.casefold()
+        for part in PurePosixPath(relative_path).parts[:-1]
+    }
+
+    # Ignore generated/dependency/cache directories.
+    if path_parts & IGNORED_PROJECT_DIRS:
+        return False
+
+    # Never send real environment/credential files
+    # into project retrieval.
+    if (
+        file_name in SENSITIVE_PROJECT_FILENAMES
+        or (
+            file_name.startswith(".env.")
+            and file_name != ".env.example"
+        )
+    ):
+        return False
+
     return (
-        extension in
-        PROJECT_TEXT_EXTENSIONS
-        or
-        file_name in
-        PROJECT_TEXT_FILENAMES
+        extension in PROJECT_TEXT_EXTENSIONS
+        or file_name in PROJECT_TEXT_FILENAMES
     )
+
+
+def get_file_read_limit(file_data: dict):
+    extension = (
+        file_data.get("extension") or ""
+    ).casefold()
+
+    if extension == ".docx":
+        return MAX_DOCX_FILE_SIZE
+
+    return MAX_TEXT_FILE_SIZE
+
+
+def get_readable_size_bytes(files: list[dict]):
+    total = 0
+
+    for file_data in files:
+        size_bytes = int(
+            file_data.get("size_bytes") or 0
+        )
+
+        if size_bytes <= get_file_read_limit(file_data):
+            total += size_bytes
+
+    return total
+
+
+def select_generic_project_files(
+    files: list[dict],
+    question: str,
+):
+    search_terms = get_search_terms(question)
+
+    ranked_files = []
+
+    for index, file_data in enumerate(files):
+        
+        relative_path = (
+            file_data["relative_path"]
+            .replace("\\", "/")
+            .casefold()
+        )
+
+        file_name = (
+            file_data["file_name"]
+            .casefold()
+        )
+
+        score = 0
+
+        # Prefer important entry/configuration files.
+        if file_name in IMPORTANT_PROJECT_FILENAMES:
+            score += 4
+
+        # Prefer filenames/paths related to the question.
+        for term in search_terms:
+            if term in file_name:
+                score += 12
+            elif term in relative_path:
+                score += 6
+
+        ranked_files.append(
+            (
+                score,
+                -index,
+                file_data,
+            )
+        )
+
+    ranked_files.sort(
+        key=lambda item: (
+            item[0],
+            item[1],
+        ),
+        reverse=True,
+    )
+
+    selected_files = []
+    total_bytes = 0
+
+    for _, _, file_data in ranked_files:
+        size_bytes = int(
+            file_data.get("size_bytes") or 0
+        )
+
+        if size_bytes > get_file_read_limit(file_data):
+            continue
+
+        if len(selected_files) >= MAX_GENERIC_SCAN_FILES:
+            break
+
+        if (
+            total_bytes + size_bytes
+            > MAX_GENERIC_SCAN_BYTES
+        ):
+            continue
+
+        selected_files.append(file_data)
+        total_bytes += size_bytes
+
+    return selected_files
 
 
 def get_safe_project_file_path(
@@ -300,6 +490,19 @@ def read_project_file(
         .suffix
         .lower()
     )
+
+    max_file_size = (
+        MAX_DOCX_FILE_SIZE
+        if suffix == ".docx"
+        else MAX_TEXT_FILE_SIZE
+    )
+
+    try:
+        if file_path.stat().st_size > max_file_size:
+            return None
+
+    except OSError:
+        return None
 
     # DOCX files are binary ZIP-based documents,
     # so they must be parsed with python-docx.
@@ -508,6 +711,52 @@ def build_chunks(
     return (
         chunks,
         skipped_files,
+    )
+
+def get_file_signature(files: list[dict]):
+    return tuple(
+        (
+            file_data["relative_path"],
+            int(
+                file_data.get("size_bytes") or 0
+            ),
+            str(
+                file_data.get("updated_at") or ""
+            ),
+        )
+        for file_data in files
+    )
+
+
+@lru_cache(maxsize=2)
+def build_chunks_cached(
+    project_id: str,
+    file_signature: tuple,
+):
+    files = [
+        {
+            "relative_path": relative_path,
+        }
+        for (
+            relative_path,
+            _,
+            _,
+        ) in file_signature
+    ]
+
+    return build_chunks(
+        project_id,
+        files,
+    )
+
+
+def get_cached_chunks(
+    project_id: str,
+    files: list[dict],
+):
+    return build_chunks_cached(
+        project_id,
+        get_file_signature(files),
     )
 
 
@@ -984,7 +1233,7 @@ def retrieve_project_context(
             ]
 
             chunks, skipped = (
-                build_chunks(
+                get_cached_chunks(
                     project_id,
                     selected_files,
                 )
@@ -1028,11 +1277,28 @@ def retrieve_project_context(
             )
 
         # No explicit file:
-        # focused search across project.
-        chunks, skipped = (
-            build_chunks(
-                project_id,
+        # focused search across a bounded set of project files.
+        selected_files = (
+            select_generic_project_files(
                 text_files,
+                question,
+            )
+        )
+
+        if not selected_files:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message":
+                        "No safe readable project files were found for this search.",
+                },
+                ensure_ascii=False,
+            )
+
+        chunks, skipped = (
+            get_cached_chunks(
+                project_id,
+                selected_files,
             )
         )
 
@@ -1078,7 +1344,7 @@ def retrieve_project_context(
             )
 
         chunks, skipped = (
-            build_chunks(
+            get_cached_chunks(
                 project_id,
                 scoped_files,
             )
@@ -1118,8 +1384,27 @@ def retrieve_project_context(
     # Deep Project Review
     if mode == "deep":
 
+        readable_size = (
+            get_readable_size_bytes(
+                text_files
+            )
+        )
+
+        if readable_size > MAX_DEEP_SCAN_BYTES:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": (
+                        "This project is too large for a safe whole-project "
+                        "deep review. Please review a specific folder or "
+                        "module instead."
+                    ),
+                },
+                ensure_ascii=False,
+            )
+
         chunks, skipped = (
-            build_chunks(
+            get_cached_chunks(
                 project_id,
                 text_files,
             )

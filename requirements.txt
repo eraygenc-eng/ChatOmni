@@ -19,7 +19,7 @@ pydantic
 python-docx
 
 # PostgreSQL
-psycopg[binary]
+psycopg[binary,pool]
 
 # RAG PDF Assistant dependencies
 faiss-cpu==1.14.3

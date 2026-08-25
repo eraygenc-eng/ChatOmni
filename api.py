@@ -177,14 +177,62 @@ MAX_DOCUMENT_FILE_SIZE = (
 )
 
 MAX_PROJECT_ZIP_SIZE = (
-    50 * 1024 * 1024
+    750 * 1024 * 1024
 )
 
 MAX_PROJECT_EXTRACTED_SIZE = (
-    200 * 1024 * 1024
+    2 * 1024 * 1024 * 1024
 )
 
-MAX_PROJECT_FILE_COUNT = 5000
+MAX_PROJECT_FILE_COUNT = 20000
+
+MAX_PROJECT_ARCHIVE_ENTRIES = 100000
+
+PROJECT_UPLOAD_CHUNK_SIZE = (
+    1024 * 1024
+)
+
+PROJECT_EXTRACT_CHUNK_SIZE = (
+    1024 * 1024
+)
+
+IGNORED_PROJECT_ZIP_DIRS = {
+    ".git",
+    ".svn",
+    ".hg",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".cache",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    "coverage",
+    "target",
+    "vendor",
+    "site-packages",
+    "obj",
+}
+
+
+def should_ignore_project_zip_path(
+    normalized_path: PurePosixPath,
+):
+    directory_parts = {
+        part.casefold()
+        for part in normalized_path.parts[:-1]
+    }
+
+    return bool(
+        directory_parts
+        &
+        IGNORED_PROJECT_ZIP_DIRS
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -821,7 +869,6 @@ def extract_project_zip_safely(
     zip_path: Path,
     destination: Path,
 ):
-
     extracted_files = []
 
     destination.mkdir(
@@ -833,6 +880,8 @@ def extract_project_zip_safely(
         destination.resolve()
     )
 
+    extracted_total_size = 0
+
     with zipfile.ZipFile(
         zip_path,
         "r",
@@ -840,46 +889,24 @@ def extract_project_zip_safely(
 
         members = archive.infolist()
 
+        if (
+            len(members)
+            >
+            MAX_PROJECT_ARCHIVE_ENTRIES
+        ):
+            raise ValueError(
+                "ZIP contains too many archive entries."
+            )
+
         file_members = [
             member
             for member in members
             if not member.is_dir()
         ]
 
-        if (
-            len(file_members)
-            >
-            MAX_PROJECT_FILE_COUNT
-        ):
-            raise ValueError(
-                "ZIP contains too many files."
-            )
-
-        total_size = sum(
-            member.file_size
-            for member in file_members
-        )
-
-        if (
-            total_size
-            >
-            MAX_PROJECT_EXTRACTED_SIZE
-        ):
-            raise ValueError(
-                "Extracted project is too large."
-            )
+        safe_members = []
 
         for member in file_members:
-
-            mode = (
-                member.external_attr
-                >> 16
-            )
-
-            if stat.S_ISLNK(mode):
-                raise ValueError(
-                    "Symbolic links are not allowed in project ZIP files."
-                )
 
             normalized_path = PurePosixPath(
                 member.filename.replace(
@@ -897,12 +924,64 @@ def extract_project_zip_safely(
                     "Unsafe path found inside ZIP."
                 )
 
+            mode = (
+                member.external_attr
+                >> 16
+            )
+
+            if stat.S_ISLNK(mode):
+                raise ValueError(
+                    "Symbolic links are not allowed in project ZIP files."
+                )
+
+            if should_ignore_project_zip_path(
+                normalized_path
+            ):
+                continue
+
+            safe_members.append(
+                (
+                    member,
+                    normalized_path,
+                )
+            )
+
+        if (
+            len(safe_members)
+            >
+            MAX_PROJECT_FILE_COUNT
+        ):
+            raise ValueError(
+                "ZIP contains too many project files."
+            )
+
+        declared_total_size = sum(
+            member.file_size
+            for member, _
+            in safe_members
+        )
+
+        if (
+            declared_total_size
+            >
+            MAX_PROJECT_EXTRACTED_SIZE
+        ):
+            raise ValueError(
+                "Extracted project is too large."
+            )
+
+        for (
+            member,
+            normalized_path,
+        ) in safe_members:
+
             relative_path = Path(
                 *normalized_path.parts
             )
 
             target_path = (
-                destination /
+                destination
+                /
                 relative_path
             ).resolve()
 
@@ -910,6 +989,7 @@ def extract_project_zip_safely(
                 target_path.relative_to(
                     destination_root
                 )
+
             except ValueError:
                 raise ValueError(
                     "ZIP tried to write outside the project directory."
@@ -920,6 +1000,8 @@ def extract_project_zip_safely(
                 exist_ok=True,
             )
 
+            file_size = 0
+
             with archive.open(
                 member,
                 "r",
@@ -929,10 +1011,33 @@ def extract_project_zip_safely(
                     "wb"
                 ) as output:
 
-                    shutil.copyfileobj(
-                        source,
-                        output,
-                    )
+                    while True:
+
+                        chunk = source.read(
+                            PROJECT_EXTRACT_CHUNK_SIZE
+                        )
+
+                        if not chunk:
+                            break
+
+                        file_size += len(chunk)
+
+                        extracted_total_size += (
+                            len(chunk)
+                        )
+
+                        if (
+                            extracted_total_size
+                            >
+                            MAX_PROJECT_EXTRACTED_SIZE
+                        ):
+                            raise ValueError(
+                                "Extracted project is too large."
+                            )
+
+                        output.write(
+                            chunk
+                        )
 
             extracted_files.append(
                 {
@@ -952,7 +1057,7 @@ def extract_project_zip_safely(
                         .lower(),
 
                     "size_bytes":
-                        member.file_size,
+                        file_size,
                 }
             )
 
@@ -1064,49 +1169,64 @@ async def upload_project_zip(
             detail="Project file must be a ZIP archive.",
         )
 
-    zip_bytes = await file.read()
-
-    if not zip_bytes:
-        raise HTTPException(
-            status_code=400,
-            detail="Uploaded ZIP is empty.",
-        )
-
-    if (
-        len(zip_bytes)
-        >
-        MAX_PROJECT_ZIP_SIZE
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="ZIP file is too large.",
-        )
-
     project_directory = (
         PROJECTS_DATA_DIR /
         project_id
     )
 
+    upload_token = (
+        uuid.uuid4().hex
+    )
+
     temp_directory = (
         PROJECTS_DATA_DIR /
-        f"{project_id}_temp"
+        f".{project_id}_{upload_token}_temp"
     )
 
     temp_zip_path = (
         PROJECTS_DATA_DIR /
-        f"{project_id}.zip"
+        f".{project_id}_{upload_token}.zip"
     )
 
-    if temp_directory.exists():
-        shutil.rmtree(
-            temp_directory
-        )
+    extracted_files = []
 
     try:
 
-        temp_zip_path.write_bytes(
-            zip_bytes
-        )
+        uploaded_size = 0
+
+        with temp_zip_path.open(
+            "wb"
+        ) as output:
+
+            while True:
+
+                chunk = await file.read(
+                    PROJECT_UPLOAD_CHUNK_SIZE
+                )
+
+                if not chunk:
+                    break
+
+                uploaded_size += len(chunk)
+
+                if (
+                    uploaded_size
+                    >
+                    MAX_PROJECT_ZIP_SIZE
+                ):
+                    raise ValueError(
+                        "ZIP file is too large. "
+                        "Maximum size is 750 MB."
+                    )
+
+                output.write(
+                    chunk
+                )
+
+        if uploaded_size == 0:
+            raise ValueError(
+                "Uploaded ZIP is empty."
+            )
 
         extracted_files = (
             extract_project_zip_safely(
@@ -1131,22 +1251,12 @@ async def upload_project_zip(
 
     except zipfile.BadZipFile:
 
-        if temp_directory.exists():
-            shutil.rmtree(
-                temp_directory
-            )
-
         raise HTTPException(
             status_code=400,
             detail="Uploaded file is not a valid ZIP archive.",
         )
 
     except ValueError as error:
-
-        if temp_directory.exists():
-            shutil.rmtree(
-                temp_directory
-            )
 
         raise HTTPException(
             status_code=400,
@@ -1155,8 +1265,15 @@ async def upload_project_zip(
 
     finally:
 
+        await file.close()
+
         if temp_zip_path.exists():
             temp_zip_path.unlink()
+
+        if temp_directory.exists():
+            shutil.rmtree(
+                temp_directory
+            )
 
     return {
         "status": "ok",
