@@ -87,3 +87,6 @@ uploads/
 # Node.js dependencies
 node_modules/
 frontend/node_modules/
+
+# Runtime project data
+projects_data/
