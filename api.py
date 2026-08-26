@@ -358,12 +358,82 @@ def classify_task_complexity(
 
     return "balanced"
 
+def contains_deep_project_review(
+    messages
+) -> bool:
+
+    current_turn_messages = []
+
+    # Only inspect messages produced after the most
+    # recent user message. This prevents an old deep
+    # review from affecting later simple requests.
+    for message in reversed(messages or []):
+
+        message_type = getattr(
+            message,
+            "type",
+            "",
+        )
+
+        if message_type == "human":
+            break
+
+        current_turn_messages.append(
+            message
+        )
+
+    for message in current_turn_messages:
+
+        tool_calls = (
+            getattr(
+                message,
+                "tool_calls",
+                None,
+            )
+            or []
+        )
+
+        for tool_call in tool_calls:
+
+            if not isinstance(
+                tool_call,
+                dict,
+            ):
+                continue
+
+            if (
+                tool_call.get("name")
+                != "project_search"
+            ):
+                continue
+
+            tool_args = (
+                tool_call.get("args")
+                or {}
+            )
+
+            if (
+                isinstance(
+                    tool_args,
+                    dict,
+                )
+                and
+                tool_args.get("mode")
+                == "deep"
+            ):
+                return True
+
+    return False
+
 
 def get_model_fit_hint(
-    request: ChatRequest
+    request: ChatRequest,
+    deep_project_review: bool = False,
 ):
     complexity = (
-        classify_task_complexity(
+        "complex"
+        if deep_project_review
+        else classify_task_complexity(
             request
         )
     )
@@ -2084,6 +2154,15 @@ def chat(
         context=request_context,
     )
 
+    deep_project_review = (
+        contains_deep_project_review(
+            result.get(
+                "messages",
+                []
+            )
+        )
+    )
+
     response = (
         result["messages"][-1]
     )
@@ -2093,7 +2172,8 @@ def chat(
 
         "model_hint": (
             get_model_fit_hint(
-                request
+                request,
+                deep_project_review=deep_project_review
             )
         ),
     }
@@ -2158,6 +2238,8 @@ def chat_stream(
         sent_files = set()
 
         final_response = None
+
+        deep_project_review_used = False
 
 
         for chunk in request_agent.stream(
@@ -2318,6 +2400,27 @@ def chat_stream(
                             )
                         )
 
+                        tool_args = (
+                            tool_call.get(
+                                "args"
+                            )
+                            or {}
+                        )
+
+                        if (
+                            tool_name
+                            == "project_search"
+                            and isinstance(
+                                tool_args,
+                                dict,
+                            )
+                            and tool_args.get(
+                                "mode"
+                            )
+                            == "deep"
+                        ):
+                            deep_project_review_used = True
+
                         if not tool_name:
                             continue
 
@@ -2391,7 +2494,8 @@ def chat_stream(
 
             model_hint = (
                 get_model_fit_hint(
-                    request
+                    request,
+                    deep_project_review=deep_project_review_used,
                 )
             )
 

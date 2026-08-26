@@ -306,6 +306,116 @@ def project_search(
         batch=batch,
     )
 
+@tool
+def project_stats(
+    runtime: ToolRuntime[Context],
+    extension: str = "",
+) -> str:
+    """
+    Get exact file and line-count statistics for the active ChatOmni Project.
+
+    Use this tool for questions such as:
+    - How many files are in the project?
+    - How many .cs files are there?
+    - How many Python files are there?
+    - How many total lines of code are in the .cs files?
+    - Show the line count of each file.
+
+    This tool reads project files directly and does not use semantic
+    retrieval or chunk-based project search.
+
+    Args:
+        extension:
+            Optional file extension filter such as ".cs", ".py", ".js".
+            Leave empty to include all readable project text/source files.
+    """
+
+    project_id = runtime.context.project_id
+
+    if not project_id:
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "No active project is associated with this conversation.",
+            },
+            ensure_ascii=False,
+        )
+
+    normalized_extension = extension.strip().lower()
+
+    if normalized_extension and not normalized_extension.startswith("."):
+        normalized_extension = f".{normalized_extension}"
+
+    project_files = get_project_files(project_id)
+
+    selected_files = []
+
+    for file_data in project_files:
+
+        relative_path = file_data["relative_path"]
+
+        suffix = Path(relative_path).suffix.lower()
+
+        if (
+            normalized_extension
+            and suffix != normalized_extension
+        ):
+            continue
+
+        if (
+            suffix not in PROJECT_TEXT_EXTENSIONS
+        ):
+            continue
+
+        content = read_project_text_file(
+            project_id,
+            relative_path,
+        )
+
+        if content is None:
+            continue
+
+        line_count = len(content.splitlines())
+
+        selected_files.append(
+            {
+                "path": relative_path,
+                "extension": suffix,
+                "lines": line_count,
+            }
+        )
+
+    total_lines = sum(
+        file_data["lines"]
+        for file_data in selected_files
+    )
+
+    extension_counts = {}
+
+    for file_data in selected_files:
+        suffix = file_data["extension"]
+
+        extension_counts[suffix] = (
+            extension_counts.get(suffix, 0) + 1
+        )
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "extension_filter":
+                normalized_extension or None,
+            "file_count":
+                len(selected_files),
+            "total_lines":
+                total_lines,
+            "extension_counts":
+                extension_counts,
+            "files":
+                selected_files,
+        },
+        ensure_ascii=False,
+    )
+
 
 @tool
 def calculator(

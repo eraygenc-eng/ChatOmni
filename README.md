@@ -13,8 +13,11 @@ The project combines general-purpose conversational reasoning with specialized t
 - User registration, login, logout, and JWT-based authentication
 - Per-user chat, memory, and project isolation
 - Persistent project workspaces with ZIP codebase upload
+- Scope-aware project analysis with targeted, scoped, and deep review modes
+- Exact project statistics such as file counts and line counts
+- Batched continuation for large whole-project deep reviews
 - Image and screenshot understanding
-- Code and text file analysis
+- DOCX, code, and text file analysis
 - Multi-language code execution in isolated Docker sandboxes
 - Downloadable source-code generation
 - Selectable GPT-5.6 Luna / GPT-5.6 Terra models
@@ -207,8 +210,11 @@ The recommendation system analyzes basic properties of the request, such as:
 - Coding and debugging terminology
 - Architecture-related terminology
 - Analysis-oriented terminology
+- Whether the current turn actually invoked a whole-project `project_search` deep review
 
-This classification is performed locally using a lightweight heuristic and does **not require an additional language-model request**.
+This classification is performed locally using lightweight request heuristics plus observed tool usage and does **not require an additional language-model request**.
+
+For project conversations, this also prevents short continuation messages such as `Continue` from being misclassified as trivial when the current turn is still performing a deep codebase review. At the same time, an old deep-review turn does not cause unrelated later questions in the same chat to keep receiving a Terra recommendation.
 
 The recommendation system does not automatically interrupt or redirect the user's request.
 
@@ -276,6 +282,8 @@ The agent determines whether it should:
 - Query the currently loaded PDF
 - Execute code
 - Create downloadable code files
+- Search and inspect project codebases
+- Calculate exact project file/line statistics
 - Save long-term memory
 - Retrieve previously stored memory
 
@@ -815,9 +823,30 @@ project_id = null
 
 while project chats carry the corresponding project ID.
 
-Project files persist across project chats and application restarts, so the same codebase does not need to be uploaded again for every conversation.
+Project files persist across project chats and application restarts, so the same codebase does not need to be uploaded again for every conversation. Project chats are persisted and shown under their owning project in the sidebar, and project deletion removes the project's saved chats, file metadata, and stored project directory.
 
 ChatOmni does not blindly send the entire project to the model on every request. Project analysis is scope-aware: when a user asks about a specific file or module, the system retrieves the relevant project content for that request.
+
+Project retrieval currently supports three scopes:
+
+- **Targeted** — a named file/path is resolved and only that file is inspected.
+- **Scoped** — a requested folder or module is inspected without pulling unrelated files.
+- **Deep** — the whole readable project, or an explicitly requested set of extensions such as `.cs`, `.py`, or `.js`, is reviewed in ordered batches.
+
+For large deep reviews, ChatOmni intentionally processes only a limited number of batches per assistant turn and then resumes from the next batch when the user asks to continue. This prevents long periods with no streamed output and avoids the idle/network timeouts that can occur when a large codebase is forced through one extremely long tool loop.
+
+Simple project statistics do not use semantic retrieval. The dedicated `project_stats` tool reads project files directly and can return exact values such as:
+
+- Number of files matching an extension
+- Total line count for those files
+- Per-file line counts
+- Extension distribution
+
+This allows questions such as `How many .cs files are in this project?` or `How many total lines are in my .py files?` to be answered without scanning hundreds of retrieval chunks.
+
+Deep-review extension filtering is dynamic rather than language-specific. If a user explicitly requests `.cs`, `.py`, `.js`, or another supported readable extension, only those files are included; a request to review the entire project keeps the full readable project scope.
+
+Project retrieval can also parse readable DOCX content inside project workspaces while continuing to exclude sensitive environment/credential files from model retrieval.
 
 The project API checks project ownership before allowing access to project chats, project files, ZIP uploads, or project deletion.
 
@@ -887,6 +916,8 @@ Web
 Calculator
 Currency
 RAG
+Project Search
+Project Stats
 Code Sandbox
 Create Code File
 ```
@@ -942,30 +973,66 @@ Copied
 
 ---
 
+# DOCX Document Upload
+
+ChatOmni can directly read Microsoft Word `.docx` documents uploaded through the chat interface.
+
+The backend parses both normal paragraphs and table cells using `python-docx`, extracts readable text, and makes that text available to the same chat-analysis workflow used for uploaded code/text content.
+
+Conceptually:
+
+```text
+DOCX
+  │
+  ▼
+React
+  │
+  ▼
+POST /upload-document
+  │
+  ▼
+python-docx
+  │
+  ▼
+Paragraph + Table Text Extraction
+  │
+  ▼
+ChatOmni Agent
+```
+
+The current DOCX upload limit is **10 MB**. Empty or unreadable documents are rejected with a clear API error.
+
+---
+
 # Code and Text File Upload
 
 ChatOmni can directly receive source-code and text files through the chat interface.
 
-Currently supported extensions include:
+ChatOmni accepts a broad set of readable source-code, markup, configuration, data, and text formats. Examples include:
 
 ```text
-.py
-.js
-.mjs
-.cjs
-.java
-.c
-.h
-.cpp
-.cc
-.cxx
-.hpp
-.cs
-.go
-.txt
+.txt / .md / .csv
+.json / .xml / .yaml / .toml / .ini / .cfg
+.html / .css / .scss
+.js / .jsx / .ts / .tsx
+.py / .pyw
+.java / .kt / .scala
+.c / .h / .cpp / .hpp
+.cs / .vb / .fs
+.go / .rs / .swift / .dart
+.php / .rb
+.sh / .bash / .ps1 / .bat
+.sql / .graphql / .proto
+.vue / .svelte
+.r / .lua / .pl
+.ex / .erl / .clj
+.groovy / .gradle
+.tex / .bib
+.asm
+.ipynb
 ```
 
-Uploaded files are treated as text and passed to the assistant for analysis.
+Uploaded files are validated as readable text and passed to the assistant for analysis. DOCX documents use the separate document-upload pipeline described above.
 
 Code and text upload requests require an authenticated user.
 
@@ -1331,10 +1398,14 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 
 - Persistent project metadata
 - User-owned project workspaces
-- ZIP codebase upload and extraction
+- Secure ZIP codebase upload and extraction
 - Persistent project files
 - Project-specific chat sessions
-- Scope-aware project retrieval
+- Targeted, scoped, and deep project retrieval
+- Dynamic extension filtering for deep reviews
+- Resumable batched whole-project review
+- Exact `project_stats` file/line counting
+- DOCX-aware project retrieval
 
 ## Retrieval-Augmented Generation
 
@@ -1353,6 +1424,8 @@ The same tool architecture is available regardless of whether Luna or Terra is s
 - Custom Calculator Tool
 - Custom RAG PDF Tool
 - Custom Memory Tools
+- Custom Project Search Tool
+- Custom Project Statistics Tool
 - Custom Code Sandbox Tool
 - Custom Code File Generator
 
@@ -1406,6 +1479,7 @@ chatomni/
 │   ├── .dockerignore
 │   ├── package.json
 │   ├── package-lock.json
+│   ├── vite.config.js
 │   └── src/
 │       ├── App.jsx
 │       ├── App.css
@@ -1441,6 +1515,7 @@ chatomni/
 │   ├── conversations.py
 │   ├── projects.py
 │   ├── project_files.py
+│   ├── project_retrieval.py
 │   ├── titles.py
 │   ├── memory.py
 │   ├── context.py
@@ -1459,6 +1534,21 @@ The frontend `Dockerfile` builds the React application and serves the production
 `docker-compose.yml` orchestrates the frontend, backend, and PostgreSQL services while keeping PostgreSQL data and Hugging Face model downloads persistent across container recreation.
 
 The separately developed `rag_pdf_assistant` package is installed into the backend Docker image and imported through `RAGPipeline`.
+
+---
+
+# Direct Host Development
+
+ChatOmni can also be run directly from VS Code without Docker during development.
+
+In this mode:
+
+- FastAPI runs on `http://127.0.0.1:8000`
+- Vite runs on `http://localhost:5173`
+- `frontend/vite.config.js` proxies `/api/*` requests to the local FastAPI server
+- The Vite proxy removes the `/api` prefix so local development matches the production Nginx routing behavior
+
+This keeps routes such as `/api/auth/login` and `/api/auth/register` working consistently in both local development and the deployed Docker/Nginx setup.
 
 ---
 
@@ -1940,9 +2030,11 @@ The architecture keeps the agent, tools, memory, projects, authentication, and e
 
 # Project Status
 
-**Feature Complete — Dockerized and Deployed on AWS EC2**
+**Core Feature Complete — Dockerized and Deployed on AWS EC2**
 
-ChatOmni's planned core application features are implemented. The system runs as a multi-user, persistent, containerized AI application with React, FastAPI, PostgreSQL, Nginx, Docker Compose, isolated code-execution sandboxes, and AWS EC2 deployment.
+ChatOmni's planned core application features are implemented. The system runs as a multi-user, persistent, containerized AI application with React, FastAPI, PostgreSQL, Nginx, Docker Compose, isolated code-execution sandboxes, persistent project workspaces, exact project statistics, and AWS EC2 deployment.
+
+Large whole-project reviews are now safe and resumable rather than being forced through a single long-running request. Very large codebases may still require several continuation turns because deep review remains chunk/batch based; reducing the number of batches without losing review coverage is the main remaining optimization target.
 
 The current public deployment is intentionally operated on demand rather than 24/7 to control cloud infrastructure costs.
 

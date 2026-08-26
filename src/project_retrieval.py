@@ -117,7 +117,7 @@ CHUNK_MAX_LINES = 140
 CHUNK_OVERLAP_LINES = 12
 
 SEARCH_RESULT_LIMIT = 6
-DEEP_BATCH_SIZE = 4
+DEEP_BATCH_SIZE = 8
 
 # Maximum size of a single readable source/text file.
 MAX_TEXT_FILE_SIZE = 2 * 1024 * 1024  # 2 MB
@@ -1383,6 +1383,32 @@ def retrieve_project_context(
 
     # Deep Project Review
     if mode == "deep":
+
+        normalized_question = question.casefold()
+
+        deep_files = text_files
+
+        mentioned_extensions = set(
+            re.findall(
+                r"\.[a-z0-9]+",
+                normalized_question,
+            )
+        )
+
+        requested_extensions = (
+            mentioned_extensions
+            &
+            PROJECT_TEXT_EXTENSIONS
+        )
+
+        if requested_extensions:
+            deep_files = [
+                file_data
+                for file_data in text_files
+                if (
+                    file_data.get("extension") or ""
+                ).casefold() in requested_extensions
+            ]
 
         readable_size = (
             get_readable_size_bytes(

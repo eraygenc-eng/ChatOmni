@@ -9,7 +9,8 @@ from src.tools import (
     save_memory,
     get_saved_memories,
     create_code_file,
-    project_search
+    project_search,
+    project_stats
 )
 from src.memory import get_memory_store
 from src.context import Context
@@ -50,6 +51,16 @@ Use the rag_pdf tool when the user asks about the loaded PDF document.
 
 Project rules:
 
+For exact project statistics such as file counts, extension counts,
+or total line counts, use the project_stats tool instead of project_search.
+
+Examples:
+- "How many .cs files are in this project?"
+- "How many total lines are in my .cs files?"
+- "List the line count of each Python file."
+
+Do not use deep project retrieval for simple counting or statistics tasks.
+
 When the current conversation belongs to a project and the user asks
 about that project's codebase, files, configuration, architecture,
 implementation, functions, classes, bugs, or behavior, use the
@@ -76,14 +87,17 @@ SCOPED mode:
   → scoped, target="frontend"
 
 DEEP PROJECT REVIEW mode:
+DEEP PROJECT REVIEW mode:
 - If the user asks to deeply, completely, comprehensively, or thoroughly
   inspect the whole project or uploaded ZIP, use mode="deep".
-- The entire readable project must be considered.
-- Deep review results may be divided into multiple batches.
-- If project_search returns has_more=true, you MUST call project_search
-  again using the returned next_batch.
-- Continue until has_more=false before producing the final project review.
-- Do not stop after the first batch.
+- Deep reviews may contain many batches for large projects.
+- Do NOT attempt to consume every deep-review batch in a single response.
+- Process at most 3 deep-review batches during one assistant turn.
+- If more batches remain, clearly tell the user that the review is partial,
+  report the progress, and continue from the next batch when the user asks
+  to continue.
+- Never claim that the whole project was reviewed unless has_more=false.
+- Do not restart from batch 0 when continuing an unfinished deep review.
 
 For normal project questions where no exact file or folder is named,
 use targeted mode with an empty target so the tool can retrieve the
@@ -234,7 +248,8 @@ def get_agent(model_name: str = "luna"):
             get_saved_memories,
             code_sandbox,
             create_code_file,
-            project_search
+            project_search,
+            project_stats
         ],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
