@@ -1,5 +1,12 @@
 from langchain.agents import create_agent
+
+from langchain.agents.middleware import (
+    ContextEditingMiddleware,
+    ClearToolUsesEdit,
+)
+
 from config import get_model
+
 from src.tools import (
     calculator,
     web_search_tool,
@@ -46,7 +53,29 @@ or currency-conversion questions.
 Only use web search for a currency exchange-rate question if the
 currency_converter tool fails or cannot provide the requested data.
 
-For other current, recent, or time-sensitive information, use web search.
+For current, recent, or time-sensitive real-world information,
+use web search when no more specific tool has priority.
+
+Project context has priority over generic web-search rules.
+
+When the current conversation belongs to a project and words such as
+"current", "currently", "now", "latest", "güncel", "şu an", or "şu anda"
+refer to the files, code, scripts, configuration, architecture, or state
+of the uploaded project, do NOT interpret those words as a request for
+web search.
+
+In that situation, use project_search or project_stats according to
+the project rules below.
+
+Use web search when the user asks for current or recent external
+information, explicitly asks to search the web or internet, or needs
+external public information or online resources that are not available
+from the current project, loaded document, memory, or another more
+specific tool.
+
+Do not use web search merely because the user says words such as
+"current", "latest", "now", "güncel", or "şu an" when those words
+refer to the currently uploaded project or its files.
 
 Use the rag_pdf tool when the user asks about the loaded PDF document.
 
@@ -99,6 +128,13 @@ DEEP PROJECT REVIEW mode:
   to continue.
 - Never claim that the whole project was reviewed unless has_more=false.
 - Do not restart from batch 0 when continuing an unfinished deep review.
+- Requests for all project files, all scripts, the entire codebase,
+  the whole codebase, or equivalent phrases should also use mode="deep".
+
+- This includes expressions such as:
+  "all files", "all scripts", "entire codebase", "whole codebase",
+  "tüm dosyalar", "bütün dosyalar", "tüm scriptler",
+  "bütün scriptler", "tüm proje", and "bütün proje".
 
 For normal project questions where no exact file or folder is named,
 use targeted mode with an empty target so the tool can retrieve the
@@ -109,6 +145,16 @@ with the current conversation.
 Never ask the user for a project ID.
 
 Code execution rules:
+
+When debugging, testing, or executing code that belongs to the current
+project, first use project_search to retrieve the relevant project files
+and code.
+
+Use code_sandbox afterward only when actual execution would help answer
+the user's request.
+
+Do not guess or recreate project code from memory when the real project
+file can be retrieved with project_search.
 
 Use the code_sandbox tool when the user explicitly asks you to:
 - run or execute code,
@@ -288,22 +334,35 @@ def get_agent(model_name: str = "luna"):
 
     # Create ChatOmni agent
     return create_agent(
-        model=model,
-        tools=[
-            calculator,
-            web_search_tool,
-            rag_pdf,
-            currency_converter,
-            save_memory,
-            get_saved_memories,
-            code_sandbox,
-            create_code_file,
-            project_search,
-            project_stats,
-            create_artifact
-        ],
-        system_prompt=SYSTEM_PROMPT,
-        checkpointer=checkpointer,
-        store=long_term_memory,
-        context_schema=Context,
-    )
+    model=model,
+    tools=[
+        calculator,
+        web_search_tool,
+        rag_pdf,
+        currency_converter,
+        save_memory,
+        get_saved_memories,
+        code_sandbox,
+        create_code_file,
+        project_search,
+        project_stats,
+        create_artifact
+    ],
+    system_prompt=SYSTEM_PROMPT,
+
+    middleware=[
+        ContextEditingMiddleware(
+            edits=[
+                ClearToolUsesEdit(
+                    trigger=20000,
+                    keep=3,
+                ),
+            ],
+            token_count_method="approximate",
+        ),
+    ],
+
+    checkpointer=checkpointer,
+    store=long_term_memory,
+    context_schema=Context,
+)

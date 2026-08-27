@@ -287,6 +287,17 @@ The agent determines whether it should:
 - Save long-term memory
 - Retrieve previously stored memory
 
+### Context & Streaming Reliability
+
+ChatOmni includes safeguards for long-running and project-heavy conversations:
+
+- Long project chats use context editing to prevent old tool outputs from repeatedly inflating the active model context.
+- When the active context becomes large, older tool-use payloads are cleared while recent tool results are preserved.
+- Model output is capped to reduce unnecessary token-per-minute usage and lower the risk of rate-limit errors.
+- Project-specific requests take priority over generic web-search routing. Terms such as `current`, `latest`, `güncel`, or `şu an` do not trigger web search when they refer to the uploaded project's current files or code.
+- Deep project reviews use bounded batches instead of attempting to consume an entire large codebase in a single model turn.
+- Streaming model errors such as rate limits, timeouts, and temporary connection failures are handled gracefully instead of terminating the response as a generic frontend network error.
+
 Conceptually:
 
 ```text

@@ -4,7 +4,7 @@ import uuid
 import shutil
 import stat
 import zipfile
-
+import logging
 
 from io import BytesIO
 from docx import Document
@@ -35,6 +35,7 @@ from src.tools import set_rag_pdf, GENERATED_CODE_DIR
 from src.auth import router as auth_router, init_users_table, get_current_user
 
 
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 init_users_table()
@@ -800,8 +801,19 @@ def get_tool_display_name(
         return "RAG"
 
     if (
-        "web" in normalized
-        or "search" in normalized
+        "project_search" in normalized
+    ):
+        return "Project Search"
+
+    if (
+        "project_stats" in normalized
+    ):
+        return "Project"
+
+    if (
+        normalized == "web_search"
+        or normalized == "web_search_tool"
+        or normalized == "web"
     ):
         return "Web"
 
@@ -830,6 +842,125 @@ def create_stream_event(
         )
         + "\n"
     )
+
+def get_chat_error_details(
+    error: Exception,
+) -> tuple[int, str]:
+
+    error_name = (
+        type(error).__name__
+        .casefold()
+    )
+
+    error_text = (
+        str(error)
+        .casefold()
+    )
+
+    combined = (
+        f"{error_name} {error_text}"
+    )
+
+    if (
+        "rate limit" in combined
+        or "rate_limit" in combined
+        or "ratelimit" in combined
+        or "tokens per min" in combined
+        or "tokens per minute" in combined
+    ):
+        return (
+            429,
+            (
+                "ChatOmni is temporarily rate limited because "
+                "the model token-per-minute limit was reached. "
+                "Please wait a few seconds and try again."
+            ),
+        )
+
+    if (
+        "timeout" in combined
+        or "timed out" in combined
+    ):
+        return (
+            503,
+            (
+                "The model request timed out. "
+                "Please try again."
+            ),
+        )
+
+    if (
+        "connection" in combined
+        or "network" in combined
+    ):
+        return (
+            503,
+            (
+                "ChatOmni could not reach the model service. "
+                "Please try again."
+            ),
+        )
+
+    if isinstance(
+        error,
+        ValueError,
+    ):
+        return (
+            400,
+            str(error),
+        )
+
+    return (
+        500,
+        (
+            "ChatOmni could not complete the response because "
+            "the model request failed. Please try again."
+        ),
+    )
+
+def stream_agent_safely(
+    request_agent,
+    user_message,
+    config: dict,
+    request_context: Context,
+):
+
+    try:
+        yield from request_agent.stream(
+            {
+                "messages": [
+                    user_message
+                ]
+            },
+            config=config,
+            context=request_context,
+            stream_mode=[
+                "messages",
+                "updates",
+            ],
+            version="v2",
+        )
+
+    except Exception as error:
+
+        _, error_message = (
+            get_chat_error_details(
+                error
+            )
+        )
+
+        logger.exception(
+            "ChatOmni agent stream failed: %s",
+            error,
+        )
+
+        yield {
+            "type":
+                "chatomni_error",
+
+            "message":
+                error_message,
+        }
 
 # Gets generated file information from a tool result.
 def get_created_file_data(
@@ -2245,18 +2376,33 @@ def chat_stream(
         deep_project_review_used = False
 
 
-        for chunk in request_agent.stream(
-            {
-                "messages": [user_message]
-            },
+        for chunk in stream_agent_safely(
+            request_agent=request_agent,
+            user_message=user_message,
             config=config,
-            context=request_context,
-            stream_mode=[
-                "messages",
-                "updates",
-            ],
-            version="v2",
+            request_context=request_context,
         ):
+
+            # STREAM ERROR
+            if (
+                chunk.get("type")
+                == "chatomni_error"
+            ):
+
+                yield (
+                    create_stream_event(
+                        "error",
+                        message=chunk.get(
+                            "message",
+                            (
+                                "ChatOmni could not complete "
+                                "the response."
+                            ),
+                        ),
+                    )
+                )
+
+                return
 
             # STREAM TOKENS
             if (

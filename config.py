@@ -20,6 +20,7 @@ def get_model(model_name: str = "luna"):
         model=model_id,
         use_responses_api=True,
         output_version="responses/v1",
+         max_tokens=8192,
         timeout=120,
         max_retries=2
     )

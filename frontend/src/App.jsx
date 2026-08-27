@@ -3094,6 +3094,81 @@ function App() {
 
         if (
             event.type ===
+            'error'
+        ) {
+
+            const errorMessage =
+                (
+                    typeof event.message ===
+                        'string'
+                    &&
+                    event.message.trim()
+                )
+
+                    ? event.message.trim()
+
+                    : (
+                        'ChatOmni could not complete '
+                        +
+                        'the response. Please try again.'
+                    );
+
+
+            setMessages(
+                (
+                    currentMessages
+                ) =>
+                    currentMessages.map(
+                        (
+                            message
+                        ) => {
+
+                            if (
+                                message.id !==
+                                assistantMessageId
+                            ) {
+                                return message;
+                            }
+
+
+                            const existingText =
+                                (
+                                    message.text
+                                    ||
+                                    ''
+                                ).trim();
+
+
+                            return {
+                                ...message,
+
+                                isThinking:
+                                    false,
+
+                                isComplete:
+                                    true,
+
+                                text:
+                                    existingText
+
+                                        ? (
+                                            `${message.text}\n\n`
+                                            +
+                                            errorMessage
+                                        )
+
+                                        : errorMessage,
+                            };
+                        }
+                    )
+            );
+
+            return;
+        }
+
+
+        if (
+            event.type ===
             'done'
         ) {
 
@@ -3946,7 +4021,10 @@ function App() {
 
                         if (
                             event.type ===
-                            'done'
+                                'done'
+                            ||
+                            event.type ===
+                                'error'
                         ) {
 
                             streamCompleted =
@@ -3997,7 +4075,10 @@ function App() {
 
                     if (
                         event.type ===
-                        'done'
+                            'done'
+                        ||
+                        event.type ===
+                            'error'
                     ) {
 
                         streamCompleted =
