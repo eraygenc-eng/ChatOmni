@@ -856,11 +856,14 @@ def get_created_file_data(
 
 
     if (
-        tool_name
-        and
-        tool_name !=
-        "create_code_file"
-    ):
+    tool_name
+    and
+    tool_name
+    not in {
+        "create_code_file",
+        "create_artifact",
+    }
+):
 
         return None
 

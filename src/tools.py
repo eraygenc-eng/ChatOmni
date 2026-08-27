@@ -10,6 +10,7 @@ from src.code_sandbox import run_code_sandbox
 import re
 from src.project_files import get_project_files
 from src.project_retrieval import retrieve_project_context
+from src.artifacts import build_artifact
 
 
 GENERATED_CODE_DIR = (
@@ -43,6 +44,10 @@ ALLOWED_GENERATED_EXTENSIONS = {
 
 MAX_GENERATED_FILE_SIZE = (
     200 * 1024
+)
+
+MAX_GENERATED_ARTIFACT_SIZE = (
+    25 * 1024 * 1024
 )
 
 PROJECTS_DATA_DIR = Path(
@@ -652,6 +657,278 @@ def create_code_file(
                 suffix,
             "size":
                 len(file_bytes),
+        },
+        ensure_ascii=False,
+    )
+
+@tool
+def create_artifact(
+    filename: str,
+    spec: dict,
+) -> str:
+    """
+    Create a downloadable document or archive.
+
+    Supported formats:
+    DOCX, PDF, XLSX, PPTX, and ZIP.
+
+    Use this tool when the user explicitly asks for an actual
+    downloadable Word document, PDF, Excel workbook,
+    PowerPoint presentation, or ZIP archive.
+
+    The spec structure depends on the requested format.
+
+    DOCX / PDF example:
+    {
+        "title": "Report",
+        "subtitle": "Optional subtitle",
+        "sections": [
+            {
+                "heading": "Introduction",
+                "paragraphs": [
+                    "First paragraph."
+                ],
+                "bullets": [
+                    "First item",
+                    "Second item"
+                ],
+                "tables": [
+                    {
+                        "headers": ["Column A", "Column B"],
+                        "rows": [
+                            ["Value 1", "Value 2"]
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    XLSX example:
+    {
+        "sheets": [
+            {
+                "name": "Results",
+                "headers": ["Name", "Score"],
+                "rows": [
+                    ["Alice", 95],
+                    ["Bob", 90]
+                ]
+            }
+        ]
+    }
+
+    PPTX example:
+    {
+        "title": "Presentation Title",
+        "subtitle": "Optional subtitle",
+        "slides": [
+            {
+                "title": "Overview",
+                "bullets": [
+                    "First point",
+                    "Second point"
+                ]
+            }
+        ]
+    }
+
+    ZIP example:
+    {
+        "files": [
+            {
+                "path": "main.py",
+                "content": "print('Hello')"
+            },
+            {
+                "path": "README.md",
+                "content": "# Project"
+            }
+        ]
+    }
+
+    Args:
+        filename:
+            Output filename including one of these extensions:
+            .docx, .pdf, .xlsx, .pptx, .zip
+
+        spec:
+            Structured content used to build the requested artifact.
+    """
+
+    if not isinstance(
+        filename,
+        str,
+    ):
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    "Filename must be a string.",
+            },
+            ensure_ascii=False,
+        )
+
+    filename = filename.strip()
+
+    if not filename:
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    "Filename cannot be empty.",
+            },
+            ensure_ascii=False,
+        )
+
+    if (
+        "/" in filename
+        or
+        "\\" in filename
+    ):
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    "Filename cannot contain a path.",
+            },
+            ensure_ascii=False,
+        )
+
+    safe_filename = Path(
+        filename
+    ).name
+
+    if safe_filename != filename:
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    "Invalid filename.",
+            },
+            ensure_ascii=False,
+        )
+
+    suffix = (
+        Path(safe_filename)
+        .suffix
+        .lower()
+    )
+
+    allowed_extensions = {
+        ".docx",
+        ".pdf",
+        ".xlsx",
+        ".pptx",
+        ".zip",
+    }
+
+    if suffix not in allowed_extensions:
+        return json.dumps(
+            {
+                "status": "error",
+                "message": (
+                    "Unsupported artifact extension. "
+                    "Supported formats are "
+                    ".docx, .pdf, .xlsx, .pptx, and .zip."
+                ),
+            },
+            ensure_ascii=False,
+        )
+
+    if not isinstance(
+        spec,
+        dict,
+    ):
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    "Artifact spec must be an object.",
+            },
+            ensure_ascii=False,
+        )
+
+    file_id = (
+        f"{uuid.uuid4().hex}_"
+        f"{safe_filename}"
+    )
+
+    file_path = (
+        GENERATED_CODE_DIR /
+        file_id
+    )
+
+    try:
+        build_artifact(
+            path=file_path,
+            suffix=suffix,
+            spec=spec,
+        )
+
+        if (
+            not file_path.exists()
+            or
+            not file_path.is_file()
+        ):
+            raise ValueError(
+                "Artifact generation did not produce a file."
+            )
+
+        file_size = (
+            file_path.stat().st_size
+        )
+
+        if file_size == 0:
+            raise ValueError(
+                "Generated artifact is empty."
+            )
+
+        if (
+            file_size
+            >
+            MAX_GENERATED_ARTIFACT_SIZE
+        ):
+            file_path.unlink(
+                missing_ok=True
+            )
+
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message":
+                        "Generated artifact is too large.",
+                },
+                ensure_ascii=False,
+            )
+
+    except Exception as error:
+
+        if file_path.exists():
+            file_path.unlink(
+                missing_ok=True
+            )
+
+        return json.dumps(
+            {
+                "status": "error",
+                "message":
+                    str(error),
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "file_id":
+                file_id,
+            "filename":
+                safe_filename,
+            "extension":
+                suffix,
+            "size":
+                file_size,
         },
         ensure_ascii=False,
     )

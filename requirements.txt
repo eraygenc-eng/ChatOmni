@@ -16,7 +16,12 @@ fastapi
 uvicorn[standard]
 python-multipart
 pydantic
+
+# Document and artifact generation
 python-docx
+reportlab
+openpyxl
+python-pptx
 
 # PostgreSQL
 psycopg[binary,pool]
@@ -26,6 +31,6 @@ faiss-cpu==1.14.3
 pypdf==6.14.2
 sentence-transformers==5.6.1
 
-
+# Authentication
 pwdlib[argon2]
 PyJWT

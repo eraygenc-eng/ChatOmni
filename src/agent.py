@@ -10,7 +10,8 @@ from src.tools import (
     get_saved_memories,
     create_code_file,
     project_search,
-    project_stats
+    project_stats,
+    create_artifact,
 )
 from src.memory import get_memory_store
 from src.context import Context
@@ -86,7 +87,7 @@ SCOPED mode:
   "Review the frontend folder"
   → scoped, target="frontend"
 
-DEEP PROJECT REVIEW mode:
+
 DEEP PROJECT REVIEW mode:
 - If the user asks to deeply, completely, comprehensively, or thoroughly
   inspect the whole project or uploaded ZIP, use mode="deep".
@@ -132,19 +133,17 @@ third-party libraries or packages.
 
 File generation rules:
 
-Use the create_code_file tool when the user explicitly asks you to
-provide code or text as an actual downloadable file.
+There are TWO file-generation tools.
 
-Whenever the user asks to receive, download, get, or provide code
-as a file, you MUST call create_code_file during that same turn.
+1. create_code_file
 
-Do this even if a similar file was created earlier in the conversation.
+Use create_code_file when the user explicitly asks for an actual
+downloadable code or plain-text file.
 
-Never tell the user that a previous file can be downloaded instead
-of calling create_code_file again.
-
-A downloadable file is only available to the user when
-create_code_file is successfully called in the current turn.
+Examples include:
+.py, .js, .jsx, .ts, .tsx, .java, .c, .cpp, .cs,
+.go, .html, .css, .json, .md, .txt, .csv, and similar
+text-based formats supported by the tool.
 
 Examples:
 - "Give this as app.py"
@@ -152,15 +151,66 @@ Examples:
 - "Provide this code as main.cpp"
 - "Save this as a .txt file"
 
-Do not use create_code_file when the user only asks you to display
-code in the chat.
 
-When the user asks you to write, test, and provide code as a file,
+2. create_artifact
+
+Use create_artifact when the user explicitly asks for an actual
+downloadable document, spreadsheet, presentation, or archive.
+
+Supported artifact formats:
+- .docx → Microsoft Word document
+- .pdf → PDF document
+- .xlsx → Microsoft Excel workbook
+- .pptx → Microsoft PowerPoint presentation
+- .zip → ZIP archive
+
+Examples:
+- "Create this report as a Word document."
+- "Give this to me as a PDF."
+- "Turn this table into an Excel file."
+- "Create a PowerPoint presentation about this."
+- "Create these project files and give them to me as a ZIP."
+
+When using create_artifact, build a complete structured spec appropriate
+for the requested file type.
+
+For DOCX and PDF:
+Use a title, optional subtitle, and sections containing headings,
+paragraphs, bullet points, and tables when useful.
+
+For XLSX:
+Use sheets containing meaningful sheet names, headers, and rows.
+Preserve numeric values as numbers whenever possible.
+
+For PPTX:
+Create a meaningful presentation title and organized slides.
+Each slide should have a clear title and concise bullet points.
+
+For ZIP:
+Provide the requested files using relative paths and their complete
+text contents. Never include absolute paths or parent-directory traversal.
+
+Whenever the user explicitly asks to receive, download, get, create,
+export, or provide something as an actual file, you MUST use the
+appropriate file-generation tool during that same turn.
+
+Do this even if a similar file was created earlier in the conversation.
+
+Never tell the user that a previous file can be downloaded instead
+of creating the requested file again.
+
+A downloadable file is only available to the user when the appropriate
+file-generation tool is successfully called in the current turn.
+
+Do not use a file-generation tool when the user only asks you to
+display content in the chat.
+
+When the user asks you to write, test, and provide source code as a file,
 you may first use code_sandbox to verify the code and then use
-create_code_file to create the requested file.
+create_code_file.
 
-Never claim that a downloadable file was created unless the
-create_code_file tool was actually used successfully.
+Never claim that a downloadable file was created unless the relevant
+file-generation tool was actually used successfully.
 
 Long-term memory rules:
 
@@ -249,7 +299,8 @@ def get_agent(model_name: str = "luna"):
             code_sandbox,
             create_code_file,
             project_search,
-            project_stats
+            project_stats,
+            create_artifact
         ],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
