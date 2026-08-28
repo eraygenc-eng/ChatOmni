@@ -1490,6 +1490,559 @@ function MarkdownAnswer({
 
 
 // ========================================
+// CONVERSATION TOPICS
+// ========================================
+
+const CONVERSATION_FILLER_MESSAGES =
+    new Set([
+        'tamam',
+        'tamamdır',
+        'ok',
+        'okay',
+        'oldu',
+        'olur',
+        'evet',
+        'aynen',
+        'yaptım',
+        'yaptim',
+        'devam',
+        'devam et',
+        'açıldı',
+        'acildi',
+        'çalıştı',
+        'calisti',
+        'süper',
+        'super',
+        'iyi',
+    ]);
+
+
+const CONVERSATION_TOPIC_DEFINITIONS = [
+    {
+        key: 'automotive',
+        label: 'Araç / ikinci el',
+        icon: '🚗',
+        keywords: [
+            'araba',
+            'araç',
+            'arac',
+            'otomobil',
+            'sahibinden',
+            'ikinci el',
+            'sıfır araç',
+            'sifir arac',
+            'kilometre',
+            'km',
+        ],
+    },
+    {
+        key: 'deployment',
+        label: 'Deployment',
+        icon: '🚀',
+        keywords: [
+            'deploy',
+            'deployment',
+            'aws',
+            'ec2',
+            'docker',
+            'nginx',
+            'sunucu',
+            'server',
+        ],
+    },
+    {
+        key: 'https',
+        label: 'HTTPS / güvenlik',
+        icon: '🔒',
+        keywords: [
+            'https',
+            'ssl',
+            'tls',
+            'sertifika',
+            'certificate',
+            'certbot',
+            'domain',
+        ],
+    },
+    {
+        key: 'scroll',
+        label: 'Scroll davranışı',
+        icon: '↕',
+        keywords: [
+            'scroll',
+            'auto-scroll',
+            'autoscroll',
+            'kaydır',
+            'kaydir',
+            'aşağı çek',
+            'asagi cek',
+            'yukarı çık',
+            'yukari cik',
+        ],
+    },
+    {
+        key: 'navigator',
+        label: 'Konu navigasyonu',
+        icon: '⌘',
+        keywords: [
+            'navigator',
+            'navigasyon',
+            'konu başlık',
+            'konu baslik',
+            'sağdaki simge',
+            'sagdaki simge',
+            'sağ taraf',
+            'sag taraf',
+        ],
+    },
+    {
+        key: 'auth',
+        label: 'Giriş / hesap',
+        icon: '◉',
+        keywords: [
+            'login',
+            'register',
+            'auth',
+            'jwt',
+            'hesap oluştur',
+            'hesap olustur',
+            'giriş yap',
+            'giris yap',
+        ],
+    },
+    {
+        key: 'files',
+        label: 'Dosyalar',
+        icon: '📄',
+        keywords: [
+            'docx',
+            'pdf',
+            'xlsx',
+            'pptx',
+            'csv',
+            'dosya',
+            'upload',
+            'download',
+            'yükle',
+            'yukle',
+            'indir',
+        ],
+    },
+    {
+        key: 'projects',
+        label: 'Projects / ZIP',
+        icon: '◇',
+        keywords: [
+            'project',
+            'proje',
+            'zip',
+            'codebase',
+        ],
+    },
+    {
+        key: 'database',
+        label: 'Veritabanı',
+        icon: '▦',
+        keywords: [
+            'postgres',
+            'postgresql',
+            'database',
+            'veritaban',
+            'sql',
+        ],
+    },
+    {
+        key: 'code',
+        label: 'Kod / debug',
+        icon: '</>',
+        keywords: [
+            'kod',
+            'code',
+            'jsx',
+            'css',
+            'python',
+            'javascript',
+            'typescript',
+            'backend',
+            'frontend',
+            'api',
+            'bug',
+            'hata',
+            'debug',
+        ],
+    },
+    {
+        key: 'ai',
+        label: 'AI / model',
+        icon: '✦',
+        keywords: [
+            'gpt',
+            'luna',
+            'terra',
+            'llm',
+            'agent',
+            'prompt',
+            'yapay zeka',
+            'ai model',
+        ],
+    },
+];
+
+
+const CONVERSATION_TOPIC_STOP_WORDS =
+    new Set([
+        'acaba',
+        'ama',
+        'bana',
+        'ben',
+        'bence',
+        'bir',
+        'biraz',
+        'biz',
+        'bu',
+        'bunu',
+        'bunun',
+        'da',
+        'daha',
+        'de',
+        'diye',
+        'gibi',
+        'ile',
+        'için',
+        'icin',
+        'mı',
+        'mi',
+        'mu',
+        'mü',
+        'ne',
+        'nasıl',
+        'nasil',
+        'o',
+        'olarak',
+        'sen',
+        'senle',
+        'şey',
+        'sey',
+        'şimdi',
+        'simdi',
+        'şu',
+        'su',
+        've',
+        'ya',
+        'yani',
+        'yapalım',
+        'yapalim',
+    ]);
+
+
+function normalizeConversationTopicText(
+    text
+) {
+
+    return String(
+        text
+        ||
+        ''
+    )
+        .toLocaleLowerCase('tr-TR')
+        .replace(
+            /\s+/g,
+            ' '
+        )
+        .trim();
+}
+
+
+function isConversationFillerMessage(
+    text
+) {
+
+    const normalizedText =
+        normalizeConversationTopicText(
+            text
+        )
+            .replace(
+                /[.!?,;:]+$/g,
+                ''
+            )
+            .trim();
+
+
+    if (!normalizedText) {
+        return true;
+    }
+
+
+    return CONVERSATION_FILLER_MESSAGES
+        .has(
+            normalizedText
+        );
+}
+
+
+function getConversationTopicWords(
+    text
+) {
+
+    return normalizeConversationTopicText(
+        text
+    )
+        .replace(
+            /[^a-z0-9çğıöşü]+/gi,
+            ' '
+        )
+        .split(
+            /\s+/
+        )
+        .map(
+            (word) =>
+                word.trim()
+        )
+        .filter(
+            (word) =>
+                word.length >= 3
+                &&
+                !CONVERSATION_TOPIC_STOP_WORDS
+                    .has(
+                        word
+                    )
+        );
+}
+
+
+function getConversationTopicDefinition(
+    text
+) {
+
+    const normalizedText =
+        normalizeConversationTopicText(
+            text
+        );
+
+
+    return (
+        CONVERSATION_TOPIC_DEFINITIONS
+            .find(
+                (definition) =>
+                    definition.keywords
+                        .some(
+                            (keyword) =>
+                                normalizedText
+                                    .includes(
+                                        keyword
+                                    )
+                        )
+            )
+        ||
+        null
+    );
+}
+
+
+function buildConversationTopicLabel(
+    text,
+    definition
+) {
+
+    if (definition) {
+        return definition.label;
+    }
+
+
+    const cleanText =
+        String(
+            text
+            ||
+            ''
+        )
+            .replace(
+                /\s+/g,
+                ' '
+            )
+            .trim();
+
+
+    if (
+        cleanText.length <=
+        42
+    ) {
+        return cleanText;
+    }
+
+
+    return `${cleanText.slice(0, 39).trimEnd()}…`;
+}
+
+
+function shouldMergeConversationTopics(
+    previousTopic,
+    nextTopic
+) {
+
+    if (!previousTopic) {
+        return false;
+    }
+
+
+    if (
+        previousTopic.category !==
+            'general'
+        &&
+        previousTopic.category ===
+            nextTopic.category
+    ) {
+        return true;
+    }
+
+
+    if (
+        previousTopic.category !==
+            'general'
+        ||
+        nextTopic.category !==
+            'general'
+    ) {
+        return false;
+    }
+
+
+    const previousWords =
+        new Set(
+            previousTopic.words
+        );
+
+
+    const commonWordCount =
+        nextTopic.words
+            .filter(
+                (word) =>
+                    previousWords
+                        .has(
+                            word
+                        )
+            )
+            .length;
+
+
+    return commonWordCount >= 2;
+}
+
+
+function buildConversationTopics(
+    messages
+) {
+
+    const topics = [];
+
+
+    (
+        messages
+        ||
+        []
+    )
+        .filter(
+            (message) =>
+                message
+                    ?.sender ===
+                    'user'
+        )
+        .forEach(
+            (message) => {
+
+                const text =
+                    String(
+                        message.text
+                        ||
+                        ''
+                    )
+                        .trim();
+
+
+                if (
+                    !message.file
+                    &&
+                    isConversationFillerMessage(
+                        text
+                    )
+                ) {
+                    return;
+                }
+
+
+                const definition =
+                    getConversationTopicDefinition(
+                        text
+                    );
+
+
+                const nextTopic = {
+                    messageId:
+                        message.id,
+
+                    category:
+                        definition
+                            ?.key
+                        ||
+                        'general',
+
+                    label:
+                        buildConversationTopicLabel(
+                            text
+                            ||
+                            message.file
+                                ?.name
+                            ||
+                            'Dosya',
+                            definition
+                        ),
+
+                    icon:
+                        definition
+                            ?.icon
+                        ||
+                        (
+                            message.file
+
+                                ? '📎'
+
+                                : '◆'
+                        ),
+
+                    words:
+                        getConversationTopicWords(
+                            text
+                        ),
+                };
+
+
+                const previousTopic =
+                    topics[
+                        topics.length - 1
+                    ];
+
+
+                if (
+                    shouldMergeConversationTopics(
+                        previousTopic,
+                        nextTopic
+                    )
+                ) {
+                    return;
+                }
+
+
+                topics.push(
+                    nextTopic
+                );
+            }
+        );
+
+
+    return topics;
+}
+
+
+// ========================================
 // APP
 // ========================================
 
@@ -1509,6 +2062,20 @@ function App() {
         messages,
         setMessages,
     ] = useState([]);
+
+
+    const [
+        activeTopicMessageId,
+        setActiveTopicMessageId,
+    ] = useState(
+        null
+    );
+
+
+    const conversationTopics =
+        buildConversationTopics(
+            messages
+        );
 
 
     const [
@@ -1763,6 +2330,18 @@ function App() {
         );
 
 
+    const autoScrollFrameRef =
+        useRef(
+            null
+        );
+
+
+    const lastScrollTopRef =
+        useRef(
+            0
+        );
+
+
     // ========================================
     // AUTH
     // ========================================
@@ -1792,6 +2371,11 @@ function App() {
 
         setMessages(
             []
+        );
+
+
+        setActiveTopicMessageId(
+            null
         );
 
 
@@ -2633,6 +3217,47 @@ function App() {
     // SMART AUTO-SCROLL
     // ========================================
 
+    function stopPendingAutoScrollFrame() {
+
+        if (
+            autoScrollFrameRef
+                .current ===
+            null
+        ) {
+            return;
+        }
+
+
+        cancelAnimationFrame(
+            autoScrollFrameRef
+                .current
+        );
+
+
+        autoScrollFrameRef
+            .current =
+                null;
+    }
+
+
+    function handleMessagesWheel(
+        event
+    ) {
+
+        if (
+            event.deltaY < 0
+        ) {
+
+            autoScrollEnabledRef
+                .current =
+                    false;
+
+
+            stopPendingAutoScrollFrame();
+        }
+    }
+
+
     function handleMessagesScroll() {
 
         const container =
@@ -2645,32 +3270,252 @@ function App() {
         }
 
 
+        const currentScrollTop =
+            container.scrollTop;
+
+
+        const isScrollingUp =
+            currentScrollTop <
+            lastScrollTopRef
+                .current;
+
+
         const distanceFromBottom =
             container.scrollHeight
             -
-            container.scrollTop
+            currentScrollTop
             -
             container.clientHeight;
 
 
+        if (isScrollingUp) {
+
+            autoScrollEnabledRef
+                .current =
+                    false;
+
+
+            stopPendingAutoScrollFrame();
+        }
+
+        else if (
+            distanceFromBottom <
+            24
+        ) {
+
+            autoScrollEnabledRef
+                .current =
+                    true;
+        }
+
+
+        lastScrollTopRef
+            .current =
+                currentScrollTop;
+
+
+        updateActiveConversationTopic(
+            container
+        );
+    }
+
+
+    function updateActiveConversationTopic(
+        container =
+            messagesContainerRef.current
+    ) {
+
+        if (
+            !container
+            ||
+            conversationTopics.length ===
+                0
+        ) {
+            return;
+        }
+
+
+        const containerTop =
+            container
+                .getBoundingClientRect()
+                .top;
+
+
+        const activationLine =
+            containerTop +
+            Math.min(
+                150,
+                container.clientHeight * 0.28
+            );
+
+
+        let nextActiveTopic =
+            conversationTopics[0];
+
+
+        for (
+            const topic of
+            conversationTopics
+        ) {
+
+            const element =
+                document
+                    .getElementById(
+                        `message-${topic.messageId}`
+                    );
+
+
+            if (!element) {
+                continue;
+            }
+
+
+            if (
+                element
+                    .getBoundingClientRect()
+                    .top <=
+                activationLine
+            ) {
+
+                nextActiveTopic =
+                    topic;
+            }
+
+            else {
+                break;
+            }
+        }
+
+
+        setActiveTopicMessageId(
+            (currentTopicId) =>
+                currentTopicId ===
+                    nextActiveTopic.messageId
+
+                    ? currentTopicId
+
+                    : nextActiveTopic.messageId
+        );
+    }
+
+
+    function scrollToConversationTopic(
+        messageId
+    ) {
+
+        const container =
+            messagesContainerRef
+                .current;
+
+
+        const target =
+            document
+                .getElementById(
+                    `message-${messageId}`
+                );
+
+
+        if (
+            !container
+            ||
+            !target
+        ) {
+            return;
+        }
+
+
         autoScrollEnabledRef
             .current =
-                distanceFromBottom <
-                120;
+                false;
+
+
+        stopPendingAutoScrollFrame();
+
+
+        const containerRect =
+            container
+                .getBoundingClientRect();
+
+
+        const targetRect =
+            target
+                .getBoundingClientRect();
+
+
+        const targetScrollTop =
+            container.scrollTop
+            +
+            targetRect.top
+            -
+            containerRect.top
+            -
+            24;
+
+
+        setActiveTopicMessageId(
+            messageId
+        );
+
+
+        container.scrollTo({
+            top:
+                Math.max(
+                    0,
+                    targetScrollTop
+                ),
+
+            behavior:
+                'smooth',
+        });
     }
 
 
     useEffect(
         () => {
 
-            const container =
-                messagesContainerRef
-                    .current;
+            if (
+                conversationTopics.length ===
+                0
+            ) {
+
+                setActiveTopicMessageId(
+                    null
+                );
+
+                return;
+            }
+
+
+            const activeTopicStillExists =
+                conversationTopics
+                    .some(
+                        (topic) =>
+                            topic.messageId ===
+                            activeTopicMessageId
+                    );
 
 
             if (
-                !container
-                ||
+                !activeTopicStillExists
+            ) {
+
+                setActiveTopicMessageId(
+                    conversationTopics[0]
+                        .messageId
+                );
+            }
+
+        },
+        [
+            messages,
+        ]
+    );
+
+
+    useEffect(
+        () => {
+
+            if (
                 !autoScrollEnabledRef
                     .current
             ) {
@@ -2678,14 +3523,56 @@ function App() {
             }
 
 
-            requestAnimationFrame(
-                () => {
+            stopPendingAutoScrollFrame();
 
-                    container.scrollTop =
-                        container
-                            .scrollHeight;
-                }
-            );
+
+            autoScrollFrameRef
+                .current =
+                    requestAnimationFrame(
+                        () => {
+
+                            autoScrollFrameRef
+                                .current =
+                                    null;
+
+
+                            const container =
+                                messagesContainerRef
+                                    .current;
+
+
+                            if (
+                                !container
+                                ||
+                                !autoScrollEnabledRef
+                                    .current
+                            ) {
+                                return;
+                            }
+
+
+                            container.scrollTop =
+                                container
+                                    .scrollHeight;
+
+
+                            lastScrollTopRef
+                                .current =
+                                    container
+                                        .scrollTop;
+
+
+                            updateActiveConversationTopic(
+                                container
+                            );
+                        }
+                    );
+
+
+            return () => {
+
+                stopPendingAutoScrollFrame();
+            };
 
         },
         [
@@ -7413,6 +8300,9 @@ This will permanently delete the project, its project chats, and its stored file
                                     onScroll={
                                         handleMessagesScroll
                                     }
+                                    onWheel={
+                                        handleMessagesWheel
+                                    }
                                 >
 
                                     <div className="messages">
@@ -7430,7 +8320,10 @@ This will permanently delete the project, its project chats, and its stored file
                                                                 key={
                                                                     message.id
                                                                 }
-                                                                className="user-message"
+                                                                id={
+                                                                    `message-${message.id}`
+                                                                }
+                                                                className="user-message conversation-topic-anchor"
                                                             >
 
                                                                 {
@@ -7613,6 +8506,77 @@ This will permanently delete the project, its project chats, and its stored file
                                     </div>
 
                                 </div>
+
+
+                                {
+                                    conversationTopics.length >
+                                    0
+                                    && (
+                                        <nav
+                                            className="conversation-navigator"
+                                            aria-label="Conversation topics"
+                                        >
+
+                                            <div className="conversation-navigator-list">
+
+                                                {
+                                                    conversationTopics.map(
+                                                        (topic) => (
+                                                            <button
+                                                                key={
+                                                                    topic.messageId
+                                                                }
+                                                                type="button"
+                                                                className={
+                                                                    `conversation-topic-button ${
+                                                                        activeTopicMessageId ===
+                                                                        topic.messageId
+
+                                                                            ? 'active'
+
+                                                                            : ''
+                                                                    }`
+                                                                }
+                                                                onClick={
+                                                                    () =>
+                                                                        scrollToConversationTopic(
+                                                                            topic.messageId
+                                                                        )
+                                                                }
+                                                                title={
+                                                                    topic.label
+                                                                }
+                                                                aria-label={
+                                                                    `Go to topic: ${topic.label}`
+                                                                }
+                                                            >
+
+                                                                <span className="conversation-topic-label">
+                                                                    {
+                                                                        topic.label
+                                                                    }
+                                                                </span>
+
+
+                                                                <span
+                                                                    className="conversation-topic-icon"
+                                                                    aria-hidden="true"
+                                                                >
+                                                                    {
+                                                                        topic.icon
+                                                                    }
+                                                                </span>
+
+                                                            </button>
+                                                        )
+                                                    )
+                                                }
+
+                                            </div>
+
+                                        </nav>
+                                    )
+                                }
 
 
                                 <div className="input-area">
