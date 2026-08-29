@@ -1109,12 +1109,19 @@
 
 
 /* ======================================== */
-/* SELECTED FILE                            */
+/* SELECTED FILE / MULTI IMAGE              */
 /* ======================================== */
+
+.input-wrapper > .selected-file,
+.input-wrapper > div:has(> .selected-file) {
+  margin-bottom: 8px;
+}
+
 
 .selected-file {
   width: fit-content;
-  max-width: 100%;
+  max-width: min(100%, 320px);
+  min-width: 0;
 
   display: flex;
   align-items: center;
@@ -1135,30 +1142,56 @@
 
   color:
     var(--text-secondary);
+
+  box-sizing: border-box;
+
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+
+.input-wrapper .selected-file:hover {
+  border-color:
+    rgba(139, 124, 246, 0.48);
+
+  background-color:
+    var(--surface-hover);
 }
 
 
 .selected-file-info {
   min-width: 0;
+  max-width: 100%;
 
   display: flex;
   align-items: center;
 
   gap: 8px;
+
+  overflow: hidden;
 }
 
 
 .file-icon {
+  flex-shrink: 0;
+
   color:
     var(--accent);
 
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 750;
+
+  line-height: 1;
+
+  white-space: nowrap;
 }
 
 
 .file-name {
-  max-width: 300px;
+  min-width: 0;
+  max-width: 250px;
 
   overflow: hidden;
 
@@ -1172,9 +1205,20 @@
 
 
 .remove-file-button {
+  width: 24px;
+  height: 24px;
+
+  flex-shrink: 0;
+
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
   padding: 0;
 
   border: none;
+
+  border-radius: 7px;
 
   background:
     transparent;
@@ -1183,14 +1227,42 @@
     var(--text-secondary);
 
   font-size: 18px;
+  line-height: 1;
 
   cursor: pointer;
+
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
 }
 
 
 .remove-file-button:hover {
+  background-color:
+    var(--accent-soft);
+
   color:
     var(--text-primary);
+}
+
+
+.remove-file-button:active {
+  transform:
+    scale(0.92);
+}
+
+
+@media (max-width: 650px) {
+
+  .selected-file {
+    max-width: min(100%, 260px);
+  }
+
+
+  .file-name {
+    max-width: 190px;
+  }
 }
 
 

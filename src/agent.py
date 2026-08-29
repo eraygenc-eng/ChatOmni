@@ -3,6 +3,7 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import (
     ContextEditingMiddleware,
     ClearToolUsesEdit,
+    SummarizationMiddleware
 )
 
 from config import get_model
@@ -351,18 +352,27 @@ def get_agent(model_name: str = "luna"):
     system_prompt=SYSTEM_PROMPT,
 
     middleware=[
-        ContextEditingMiddleware(
-            edits=[
-                ClearToolUsesEdit(
-                    trigger=20000,
-                    keep=3,
-                ),
-            ],
-            token_count_method="approximate",
-        ),
-    ],
+    ContextEditingMiddleware(
+        edits=[
+            ClearToolUsesEdit(
+                trigger=20000,
+                keep=3,
+            ),
+        ],
+        token_count_method="approximate",
+    ),
+
+    SummarizationMiddleware(
+        model=get_model("luna"),
+        trigger=("tokens", 30000),
+        keep=("messages", 12),
+    ),
+],
 
     checkpointer=checkpointer,
     store=long_term_memory,
     context_schema=Context,
 )
+
+
+# En son token sınırı güncellemesi yaptık

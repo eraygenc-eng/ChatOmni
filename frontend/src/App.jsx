@@ -1958,8 +1958,23 @@ function buildConversationTopics(
                         .trim();
 
 
+                const hasAttachment =
+                    Boolean(
+                        message.file
+                        ||
+                        (
+                            Array.isArray(
+                                message.attachments
+                            )
+                            &&
+                            message.attachments
+                                .length > 0
+                        )
+                    );
+
+
                 if (
-                    !message.file
+                    !hasAttachment
                     &&
                     isConversationFillerMessage(
                         text
@@ -1992,6 +2007,10 @@ function buildConversationTopics(
                             message.file
                                 ?.name
                             ||
+                            message.attachments
+                                ?.[0]
+                                ?.name
+                            ||
                             'Dosya',
                             definition
                         ),
@@ -2001,7 +2020,7 @@ function buildConversationTopics(
                             ?.icon
                         ||
                         (
-                            message.file
+                            hasAttachment
 
                                 ? '📎'
 
@@ -2099,6 +2118,14 @@ function App() {
         setSelectedFile,
     ] = useState(
         null
+    );
+
+
+    const [
+        selectedImages,
+        setSelectedImages,
+    ] = useState(
+        []
     );
 
 
@@ -2381,6 +2408,11 @@ function App() {
 
         setSelectedFile(
             null
+        );
+
+
+        setSelectedImages(
+            []
         );
 
 
@@ -4086,6 +4118,9 @@ function App() {
                 ''
             &&
             !selectedFile
+            &&
+            selectedImages.length ===
+                0
         ) {
             return;
         }
@@ -4105,6 +4140,11 @@ function App() {
             selectedFile;
 
 
+        const imageAttachments = [
+            ...selectedImages,
+        ];
+
+
         const requestModel =
             selectedModel;
 
@@ -4113,23 +4153,29 @@ function App() {
             typedMessage
             ||
             (
-                attachment
-                    ?.category ===
-                    'pdf'
+                imageAttachments.length >
+                    0
 
-                    ? 'Briefly summarize this PDF.'
+                    ? (
+                        imageAttachments.length >
+                            1
+
+                            ? 'Analyze these images in the order they were uploaded and explain the important points.'
+
+                            : 'Analyze this image and explain the important points.'
+                    )
 
                     : attachment
                         ?.category ===
-                        'document'
+                        'pdf'
 
-                        ? 'Briefly summarize this document.'
+                        ? 'Briefly summarize this PDF.'
 
                         : attachment
                             ?.category ===
-                            'image'
+                            'document'
 
-                            ? 'Analyze this image and explain the important points.'
+                            ? 'Briefly summarize this document.'
 
                             : attachment
                                 ?.category ===
@@ -4154,7 +4200,26 @@ function App() {
                     `The user's message refers to this PDF.] ${messageText}`
                 )
 
-                : messageText;
+                : imageAttachments.length >
+                    1
+
+                    ? (
+                        `[The user uploaded ${imageAttachments.length} images. `
+                        +
+                        `Analyze them in the exact order they were uploaded: `
+                        +
+                        `${imageAttachments
+                            .map(
+                                (
+                                    image,
+                                    index
+                                ) =>
+                                    `${index + 1}. ${image.name}`
+                            )
+                            .join(', ')}.] ${messageText}`
+                    )
+
+                    : messageText;
 
 
         const userMessageId =
@@ -4189,6 +4254,26 @@ function App() {
                             attachment.category,
                     }
                     : null,
+
+            attachments:
+                imageAttachments.map(
+                    (
+                        image,
+                        index
+                    ) => ({
+                        name:
+                            image.name,
+
+                        type:
+                            image.type,
+
+                        category:
+                            'image',
+
+                        order:
+                            index + 1,
+                    })
+                ),
         };
 
 
@@ -4240,6 +4325,10 @@ function App() {
 
         setSelectedFile(
             null
+        );
+
+        setSelectedImages(
+            []
         );
 
         setAttachMenuOpen(
@@ -4294,8 +4383,8 @@ function App() {
 
         try {
 
-            let imageId =
-                null;
+            const imageIds =
+                [];
 
             let codeId =
                 null;
@@ -4483,10 +4572,9 @@ function App() {
             // IMAGE UPLOAD
             // ========================================
 
-            if (
-                attachment
-                    ?.category ===
-                'image'
+            for (
+                const imageAttachment of
+                imageAttachments
             ) {
 
                 const formData =
@@ -4495,7 +4583,7 @@ function App() {
 
                 formData.append(
                     'file',
-                    attachment.file
+                    imageAttachment.file
                 );
 
 
@@ -4563,7 +4651,7 @@ function App() {
                         .json();
 
 
-                imageId =
+                const imageId =
                     uploadData
                         .image_id;
 
@@ -4574,6 +4662,11 @@ function App() {
                         'Image upload failed: backend did not return an image ID.'
                     );
                 }
+
+
+                imageIds.push(
+                    imageId
+                );
             }
 
 
@@ -4698,10 +4791,22 @@ function App() {
             };
 
 
-            if (imageId) {
+            if (
+                imageIds.length ===
+                1
+            ) {
 
                 requestBody.image_id =
-                    imageId;
+                    imageIds[0];
+            }
+
+            else if (
+                imageIds.length >
+                1
+            ) {
+
+                requestBody.image_ids =
+                    imageIds;
             }
 
 
@@ -5459,6 +5564,11 @@ function App() {
             )
         ) {
 
+            setSelectedImages(
+                []
+            );
+
+
             setSelectedFile({
                 file,
 
@@ -5503,6 +5613,11 @@ function App() {
 
                 return;
             }
+
+
+            setSelectedImages(
+                []
+            );
 
 
             setSelectedFile({
@@ -5574,6 +5689,11 @@ function App() {
         }
 
 
+        setSelectedImages(
+            []
+        );
+
+
         setSelectedFile({
             file,
 
@@ -5603,12 +5723,19 @@ function App() {
         event
     ) {
 
-        const file =
-            event.target
-                .files[0];
+        const files =
+            Array.from(
+                event.target
+                    .files
+                ||
+                []
+            );
 
 
-        if (!file) {
+        if (
+            files.length ===
+            0
+        ) {
 
             event.target.value =
                 '';
@@ -5624,12 +5751,17 @@ function App() {
         ];
 
 
-        if (
-            !allowedTypes
-                .includes(
-                    file.type
-                )
-        ) {
+        const unsupportedFile =
+            files.find(
+                (file) =>
+                    !allowedTypes
+                        .includes(
+                            file.type
+                        )
+            );
+
+
+        if (unsupportedFile) {
 
             alert(
                 'Supported image formats are PNG, JPG, JPEG, and WEBP.'
@@ -5643,18 +5775,39 @@ function App() {
         }
 
 
-        setSelectedFile({
-            file,
+        const nextImages =
+            files.map(
+                (file) => ({
+                    clientId:
+                        createClientId(),
 
-            name:
-                file.name,
+                    file,
 
-            type:
-                file.type,
+                    name:
+                        file.name,
 
-            category:
-                'image',
-        });
+                    type:
+                        file.type,
+
+                    category:
+                        'image',
+                })
+            );
+
+
+        setSelectedFile(
+            null
+        );
+
+
+        setSelectedImages(
+            (
+                currentImages
+            ) => [
+                ...currentImages,
+                ...nextImages,
+            ]
+        );
 
 
         event.target.value =
@@ -5681,12 +5834,12 @@ function App() {
         }
 
 
-        const imageItem =
+        const imageItems =
             Array
                 .from(
                     clipboardItems
                 )
-                .find(
+                .filter(
                     (
                         item
                     ) =>
@@ -5697,17 +5850,10 @@ function App() {
                 );
 
 
-        if (!imageItem) {
-            return;
-        }
-
-
-        const imageBlob =
-            imageItem
-                .getAsFile();
-
-
-        if (!imageBlob) {
+        if (
+            imageItems.length ===
+            0
+        ) {
             return;
         }
 
@@ -5719,12 +5865,41 @@ function App() {
         ];
 
 
-        if (
-            !allowedTypes
-                .includes(
-                    imageBlob.type
+        const imageFiles =
+            imageItems
+                .map(
+                    (
+                        imageItem
+                    ) =>
+                        imageItem
+                            .getAsFile()
                 )
+                .filter(
+                    Boolean
+                );
+
+
+        if (
+            imageFiles.length ===
+            0
         ) {
+            return;
+        }
+
+
+        const unsupportedImage =
+            imageFiles.find(
+                (
+                    imageFile
+                ) =>
+                    !allowedTypes
+                        .includes(
+                            imageFile.type
+                        )
+            );
+
+
+        if (unsupportedImage) {
 
             alert(
                 'Pasted image format is not supported. Use PNG, JPG, JPEG, or WEBP.'
@@ -5737,57 +5912,88 @@ function App() {
         event.preventDefault();
 
 
-        let extension =
-            'png';
+        const timestamp =
+            Date.now();
 
 
-        if (
-            imageBlob.type ===
-            'image/jpeg'
-        ) {
-
-            extension =
-                'jpg';
-        }
-
-        else if (
-            imageBlob.type ===
-            'image/webp'
-        ) {
-
-            extension =
-                'webp';
-        }
-
-
-        const screenshotFile =
-            new File(
-                [
+        const nextImages =
+            imageFiles.map(
+                (
                     imageBlob,
-                ],
+                    index
+                ) => {
 
-                `screenshot-${Date.now()}.${extension}`,
+                    let extension =
+                        'png';
 
-                {
-                    type:
-                        imageBlob.type,
+
+                    if (
+                        imageBlob.type ===
+                        'image/jpeg'
+                    ) {
+
+                        extension =
+                            'jpg';
+                    }
+
+                    else if (
+                        imageBlob.type ===
+                        'image/webp'
+                    ) {
+
+                        extension =
+                            'webp';
+                    }
+
+
+                    const screenshotFile =
+                        new File(
+                            [
+                                imageBlob,
+                            ],
+
+                            `screenshot-${timestamp}-${index + 1}.${extension}`,
+
+                            {
+                                type:
+                                    imageBlob.type,
+                            }
+                        );
+
+
+                    return {
+                        clientId:
+                            createClientId(),
+
+                        file:
+                            screenshotFile,
+
+                        name:
+                            screenshotFile.name,
+
+                        type:
+                            screenshotFile.type,
+
+                        category:
+                            'image',
+                    };
                 }
             );
 
 
-        setSelectedFile({
-            file:
-                screenshotFile,
+        setSelectedFile(
+            null
+        );
 
-            name:
-                screenshotFile.name,
 
-            type:
-                screenshotFile.type,
-
-            category:
-                'image',
-        });
+        setSelectedImages(
+            (
+                currentImages
+            ) => [
+                ...currentImages,
+                ...nextImages,
+            ]
+        );
 
 
         setAttachMenuOpen(
@@ -5804,6 +6010,36 @@ function App() {
 
         setSelectedFile(
             null
+        );
+
+
+        requestAnimationFrame(
+            () => {
+
+                messageInputRef
+                    .current
+                    ?.focus();
+            }
+        );
+    }
+
+
+    function removeSelectedImage(
+        imageIndex
+    ) {
+
+        setSelectedImages(
+            (
+                currentImages
+            ) =>
+                currentImages.filter(
+                    (
+                        _,
+                        index
+                    ) =>
+                        index !==
+                        imageIndex
+                )
         );
 
 
@@ -5871,6 +6107,11 @@ function App() {
 
         setSelectedFile(
             null
+        );
+
+
+        setSelectedImages(
+            []
         );
 
 
@@ -5963,6 +6204,11 @@ function App() {
 
         setSelectedFile(
             null
+        );
+
+
+        setSelectedImages(
+            []
         );
 
 
@@ -6419,6 +6665,11 @@ function App() {
         );
 
 
+        setSelectedImages(
+            []
+        );
+
+
         setAttachMenuOpen(
             false
         );
@@ -6723,6 +6974,11 @@ function App() {
                 );
 
 
+                setSelectedImages(
+                    []
+                );
+
+
                 setAttachMenuOpen(
                     false
                 );
@@ -6936,6 +7192,11 @@ This will permanently delete the project, its project chats, and its stored file
                 );
 
 
+                setSelectedImages(
+                    []
+                );
+
+
                 setAttachMenuOpen(
                     false
                 );
@@ -6993,23 +7254,17 @@ This will permanently delete the project, its project chats, and its stored file
                                     {
                                         selectedFile
                                             .category ===
-                                        'image'
+                                        'pdf'
 
-                                            ? 'IMG'
+                                            ? 'PDF'
 
                                             : selectedFile
                                                 .category ===
-                                            'pdf'
+                                            'document'
 
-                                                ? 'PDF'
+                                                ? 'DOC'
 
-                                                : selectedFile
-                                                    .category ===
-                                                'document'
-
-                                                    ? 'DOC'
-
-                                                    : 'FILE'
+                                                : 'FILE'
                                     }
                                 </span>
 
@@ -7033,6 +7288,82 @@ This will permanently delete the project, its project chats, and its stored file
                                 ×
                             </button>
 
+                        </div>
+                    )
+                }
+
+
+                {
+                    selectedImages.length >
+                    0
+                    && (
+                        <div
+                            style={{
+                                display:
+                                    'flex',
+
+                                flexWrap:
+                                    'wrap',
+
+                                gap:
+                                    '8px',
+
+                                maxWidth:
+                                    '100%',
+                            }}
+                        >
+                            {
+                                selectedImages.map(
+                                    (
+                                        image,
+                                        index
+                                    ) => (
+                                        <div
+                                            className="selected-file"
+                                            key={
+                                                image.clientId
+                                                ||
+                                                `${image.name}-${index}`
+                                            }
+                                        >
+
+                                            <div className="selected-file-info">
+
+                                                <span className="file-icon">
+                                                    {
+                                                        `IMG ${index + 1}`
+                                                    }
+                                                </span>
+
+
+                                                <span className="file-name">
+                                                    {
+                                                        image.name
+                                                    }
+                                                </span>
+
+                                            </div>
+
+
+                                            <button
+                                                className="remove-file-button"
+                                                onClick={
+                                                    () =>
+                                                        removeSelectedImage(
+                                                            index
+                                                        )
+                                                }
+                                                aria-label={
+                                                    `Remove image ${index + 1}`
+                                                }
+                                            >
+                                                ×
+                                            </button>
+
+                                        </div>
+                                    )
+                                )
+                            }
                         </div>
                     )
                 }
@@ -7123,6 +7454,7 @@ This will permanently delete the project, its project chats, and its stored file
                         className="hidden-file-input"
                         type="file"
                         accept="image/png,image/jpeg,image/webp"
+                        multiple
                         onChange={
                             handleImageChange
                         }
@@ -8325,6 +8657,40 @@ This will permanently delete the project, its project chats, and its stored file
                                                                 }
                                                                 className="user-message conversation-topic-anchor"
                                                             >
+
+                                                                {
+                                                                    (
+                                                                        message.attachments
+                                                                        ||
+                                                                        []
+                                                                    ).map(
+                                                                        (
+                                                                            attachment,
+                                                                            attachmentIndex
+                                                                        ) => (
+                                                                            <div
+                                                                                className="message-file"
+                                                                                key={
+                                                                                    `${message.id}-attachment-${attachmentIndex}`
+                                                                                }
+                                                                            >
+
+                                                                                <span>
+                                                                                    {
+                                                                                        `IMG ${attachmentIndex + 1}`
+                                                                                    }
+                                                                                </span>
+
+
+                                                                                {
+                                                                                    attachment.name
+                                                                                }
+
+                                                                            </div>
+                                                                        )
+                                                                    )
+                                                                }
+
 
                                                                 {
                                                                     message.file && (

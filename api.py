@@ -258,6 +258,7 @@ class ChatRequest(BaseModel):
     code_id: str | None = None
     model: Literal["luna", "terra"] = "luna"
     project_id: str | None = None
+    image_ids: list[str] | None = None
 
 COMPLEX_TASK_TERMS = {
     "advanced coding",
@@ -349,6 +350,7 @@ def classify_task_complexity(
 
     if (
         not request.image_id
+        and not request.image_ids
         and not request.code_id
         and not is_pdf_request
         and len(message) <= 140
@@ -639,18 +641,128 @@ def get_uploaded_code_file(
     )
 
 
+def get_requested_image_ids(
+    request: ChatRequest
+) -> list[str]:
+
+    requested_image_ids = []
+
+    if request.image_id:
+        requested_image_ids.append(
+            request.image_id
+        )
+
+    if request.image_ids:
+        requested_image_ids.extend(
+            request.image_ids
+        )
+
+    normalized_image_ids = []
+    seen_image_ids = set()
+
+    for image_id in requested_image_ids:
+
+        clean_image_id = str(
+            image_id
+            or
+            ""
+        ).strip()
+
+        if (
+            not clean_image_id
+            or clean_image_id in seen_image_ids
+        ):
+            continue
+
+        normalized_image_ids.append(
+            clean_image_id
+        )
+
+        seen_image_ids.add(
+            clean_image_id
+        )
+
+    return normalized_image_ids
+
+
+def build_image_content_item(
+    image_id: str
+) -> dict:
+
+    safe_image_id = Path(
+        image_id
+    ).name
+
+    if (
+        safe_image_id !=
+        image_id
+    ):
+        raise ValueError(
+            "Invalid image ID."
+        )
+
+    image_path = (
+        IMAGE_UPLOAD_DIR /
+        safe_image_id
+    )
+
+    if not image_path.exists():
+        raise ValueError(
+            "Uploaded image was not found."
+        )
+
+    suffix = (
+        image_path
+        .suffix
+        .lower()
+    )
+
+    mime_type = (
+        ALLOWED_IMAGE_TYPES
+        .get(suffix)
+    )
+
+    if not mime_type:
+        raise ValueError(
+            "Unsupported image format."
+        )
+
+    image_bytes = (
+        image_path.read_bytes()
+    )
+
+    image_base64 = (
+        base64.b64encode(
+            image_bytes
+        )
+        .decode("utf-8")
+    )
+
+    return {
+        "type": "image",
+        "base64": image_base64,
+        "mime_type": mime_type,
+    }
+
+
 def build_user_message(
     request: ChatRequest
 ):
 
+    requested_image_ids = (
+        get_requested_image_ids(
+            request
+        )
+    )
+
     if (
-        request.image_id
+        requested_image_ids
         and
         request.code_id
     ):
 
         raise ValueError(
-            "Only one uploaded file can be processed at a time."
+            "Only one uploaded file category can be processed at a time."
         )
 
 
@@ -678,90 +790,43 @@ def build_user_message(
             ),
         }
 
-    if not request.image_id:
+    if not requested_image_ids:
 
         return {
             "role": "user",
             "content": request.message,
         }
 
+    message_text = request.message
 
-    image_id = Path(
-        request.image_id
-    ).name
+    if len(
+        requested_image_ids
+    ) > 1:
 
-
-    if (
-        image_id !=
-        request.image_id
-    ):
-        raise ValueError(
-            "Invalid image ID."
+        message_text = (
+            f"{request.message}\n\n"
+            f"The user attached {len(requested_image_ids)} images. "
+            "Analyze them in the exact order they were uploaded. "
+            "Refer to them as Image 1, Image 2, Image 3, and so on."
         )
 
+    content = [
+        {
+            "type": "text",
+            "text": message_text,
+        },
+    ]
 
-    image_path = (
-        IMAGE_UPLOAD_DIR /
-        image_id
-    )
-
-
-    if not image_path.exists():
-        raise ValueError(
-            "Uploaded image was not found."
+    for image_id in requested_image_ids:
+        content.append(
+            build_image_content_item(
+                image_id
+            )
         )
-
-
-    suffix = (
-        image_path
-        .suffix
-        .lower()
-    )
-
-
-    mime_type = (
-        ALLOWED_IMAGE_TYPES
-        .get(suffix)
-    )
-
-
-    if not mime_type:
-        raise ValueError(
-            "Unsupported image format."
-        )
-
-
-    image_bytes = (
-        image_path.read_bytes()
-    )
-
-
-    image_base64 = (
-        base64.b64encode(
-            image_bytes
-        )
-        .decode("utf-8")
-    )
-
 
     return {
         "role": "user",
-
-        "content": [
-            {
-                "type": "text",
-                "text":
-                    request.message,
-            },
-
-            {
-                "type": "image",
-                "base64":
-                    image_base64,
-                "mime_type":
-                    mime_type,
-            },
-        ],
+        "content": content,
     }
 
 
