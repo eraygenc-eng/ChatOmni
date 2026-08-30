@@ -44,6 +44,40 @@ def setup_conversations():
                 """
             )
 
+            cursor.execute(
+                """
+                    CREATE TABLE IF NOT EXISTS chat_messages (
+                        id BIGSERIAL PRIMARY KEY,
+                        chat_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        sender TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+                        CONSTRAINT chat_messages_sender_check
+                        CHECK (
+                            sender IN (
+                                'user',
+                                'assistant'
+                            )
+                        )
+                    )
+                """
+            )
+
+
+            cursor.execute(
+                """
+                    CREATE INDEX IF NOT EXISTS
+                    idx_chat_messages_user_chat
+                    ON chat_messages (
+                        user_id,
+                        chat_id,
+                        id
+                    )
+                """
+            )
+
 
             cursor.execute(
                 """
@@ -176,6 +210,132 @@ def update_chat_title(
                 ),
             )
 
+# Saves one real user or assistant message.
+def save_chat_message(
+    chat_id: str,
+    user_id: str,
+    sender: str,
+    content: str
+):
+
+    chat_id = (
+        chat_id.strip()
+        or
+        "current_chat"
+    )
+
+    sender = (
+        sender.strip()
+        .lower()
+    )
+
+    content = str(
+        content
+        or
+        ""
+    ).strip()
+
+
+    if (
+        sender not in {
+            "user",
+            "assistant",
+        }
+    ):
+        raise ValueError(
+            "Invalid chat message sender."
+        )
+
+
+    if not content:
+        return
+
+
+    with get_connection() as connection:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                    INSERT INTO chat_messages (
+                        chat_id,
+                        user_id,
+                        sender,
+                        content
+                    )
+                    VALUES (
+                        %s,
+                        %s,
+                        %s,
+                        %s
+                    )
+                """,
+                (
+                    chat_id,
+                    user_id,
+                    sender,
+                    content,
+                ),
+            )
+
+
+# Gets the complete real conversation history.
+def get_persisted_chat_messages(
+    chat_id: str,
+    user_id: str
+):
+
+    chat_id = (
+        chat_id.strip()
+        or
+        "current_chat"
+    )
+
+
+    with get_connection() as connection:
+
+        with connection.cursor() as cursor:
+
+            cursor.execute(
+                """
+                    SELECT
+                        id,
+                        sender,
+                        content,
+                        created_at
+                    FROM chat_messages
+                    WHERE chat_id = %s
+                    AND user_id = %s
+                    ORDER BY id ASC
+                """,
+                (
+                    chat_id,
+                    user_id,
+                ),
+            )
+
+
+            rows = cursor.fetchall()
+
+
+    return [
+        {
+            "id":
+                row["id"],
+
+            "sender":
+                row["sender"],
+
+            "text":
+                row["content"],
+
+            "created_at":
+                row["created_at"].isoformat(),
+        }
+
+        for row in rows
+    ]
+
 # Deletes a chat from the chat list.
 def delete_chat(
     chat_id: str,
@@ -195,9 +355,22 @@ def delete_chat(
 
             cursor.execute(
                 """
-                DELETE FROM chat_conversations
-                WHERE chat_id = %s
-                AND user_id = %s
+                    DELETE FROM chat_messages
+                    WHERE chat_id = %s
+                    AND user_id = %s
+                """,
+                (
+                    chat_id,
+                    user_id,
+                ),
+            )
+
+
+            cursor.execute(
+                """
+                    DELETE FROM chat_conversations
+                    WHERE chat_id = %s
+                    AND user_id = %s
                 """,
                 (
                     chat_id,

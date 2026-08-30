@@ -23,7 +23,7 @@ from langchain.messages import (
 
 from src.titles import create_title_if_needed
 
-from src.conversations import (ensure_chat, get_chats, delete_chat, get_project_chats)
+from src.conversations import (ensure_chat, get_chats, delete_chat, get_project_chats, save_chat_message, get_persisted_chat_messages)
 from src.projects import (create_project, get_projects, get_project, delete_project)
 from src.project_files import (replace_project_files, get_project_files, delete_project_files)
 
@@ -557,6 +557,216 @@ def get_message_text(
 
     return str(
         content
+    )
+
+# Recovers old real chat messages from LangGraph checkpoint history.
+def recover_legacy_chat_messages(
+    chat_id: str,
+    user_id: str
+) -> int:
+
+    # If this chat has already been migrated,
+    # do not recover it again.
+    existing_messages = (
+        get_persisted_chat_messages(
+            chat_id,
+            user_id,
+        )
+    )
+
+    if existing_messages:
+        return 0
+
+
+    config = get_chat_config(
+        chat_id,
+        user_id,
+    )
+
+
+    history_agent = get_agent(
+        "luna"
+    )
+
+
+    try:
+
+        snapshots = list(
+            history_agent.get_state_history(
+                config
+            )
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Could not read checkpoint history "
+            "for chat %s",
+            chat_id,
+        )
+
+        return 0
+
+
+    if not snapshots:
+        return 0
+
+
+    recovered_messages = []
+
+    seen_message_ids = set()
+
+
+    # LangGraph returns newest checkpoints first.
+    # Reverse them so we rebuild the conversation
+    # from oldest to newest.
+    for snapshot in reversed(
+        snapshots
+    ):
+
+        state_messages = (
+            snapshot.values.get(
+                "messages",
+                []
+            )
+        )
+
+
+        for message in state_messages:
+
+            message_type = getattr(
+                message,
+                "type",
+                ""
+            )
+
+
+            if (
+                message_type
+                not in {
+                    "human",
+                    "ai",
+                }
+            ):
+                continue
+
+
+            # Ignore AI messages whose only purpose
+            # was calling a tool.
+            if (
+                message_type == "ai"
+                and getattr(
+                    message,
+                    "tool_calls",
+                    None
+                )
+            ):
+                continue
+
+
+            text = (
+                get_message_text(
+                    getattr(
+                        message,
+                        "content",
+                        ""
+                    )
+                )
+                .strip()
+            )
+
+
+            if not text:
+                continue
+
+
+            normalized_text = (
+                text
+                .lower()
+                .strip()
+            )
+
+
+            # Never save LangChain's internal
+            # summarization messages as real chat.
+            if normalized_text.startswith(
+                "here is a summary of the conversation to date"
+            ):
+                continue
+
+
+            if normalized_text.startswith(
+                "previous conversation was too long to summarize"
+            ):
+                continue
+
+
+            message_id = getattr(
+                message,
+                "id",
+                None
+            )
+
+
+            deduplication_key = (
+                message_id
+                if message_id
+                else (
+                    message_type,
+                    text,
+                )
+            )
+
+
+            if (
+                deduplication_key
+                in seen_message_ids
+            ):
+                continue
+
+
+            seen_message_ids.add(
+                deduplication_key
+            )
+
+
+            recovered_messages.append(
+                {
+                    "sender":
+                        (
+                            "user"
+                            if message_type == "human"
+                            else "assistant"
+                        ),
+
+                    "content":
+                        text,
+                }
+            )
+
+
+    for recovered_message in (
+        recovered_messages
+    ):
+
+        save_chat_message(
+            chat_id=chat_id,
+            user_id=user_id,
+            sender=(
+                recovered_message[
+                    "sender"
+                ]
+            ),
+            content=(
+                recovered_message[
+                    "content"
+                ]
+            ),
+        )
+
+
+    return len(
+        recovered_messages
     )
 
 
@@ -1713,86 +1923,30 @@ def remove_chat(
     }
 
 
-# Gets saved messages from a chat.
+# Gets the complete real message history from a chat.
 @app.get(
     "/chats/{chat_id}/messages"
 )
 def get_chat_messages(
     chat_id: str,
-    user = Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
 
-    config = get_chat_config(
-        chat_id,
-        user["id"]
+    # For old chats created before chat_messages existed,
+    # recover the original conversation from LangGraph
+    # checkpoint history once.
+    recover_legacy_chat_messages(
+        chat_id=chat_id,
+        user_id=user["id"],
     )
 
 
-    snapshot = agent.get_state(
-        config
-    )
-
-
-    saved_messages = (
-        snapshot.values.get(
-            "messages",
-            []
+    messages = (
+        get_persisted_chat_messages(
+            chat_id=chat_id,
+            user_id=user["id"],
         )
     )
-
-
-    messages = []
-
-
-    for message in saved_messages:
-
-        message_type = getattr(
-            message,
-            "type",
-            ""
-        )
-
-
-        if (
-            message_type
-            not in
-            {
-                "human",
-                "ai",
-            }
-        ):
-            continue
-
-
-        text = get_message_text(
-            getattr(
-                message,
-                "content",
-                ""
-            )
-        )
-
-
-        if not text:
-            continue
-
-
-        messages.append(
-            {
-                "sender":
-                    (
-                        "user"
-                        if
-                        message_type
-                        == "human"
-                        else
-                        "assistant"
-                    ),
-
-                "text":
-                    text,
-            }
-        )
 
 
     return {
@@ -2321,6 +2475,11 @@ def chat(
         request.project_id
     )
 
+    recover_legacy_chat_messages(
+        chat_id=request.chat_id,
+        user_id=user["id"],
+    )
+
     create_title_if_needed(
         request.chat_id,
         request.message,
@@ -2341,6 +2500,13 @@ def chat(
         build_user_message(
             request
         )
+    )
+
+    save_chat_message(
+        chat_id=request.chat_id,
+        user_id=user["id"],
+        sender="user",
+        content=request.message,
     )
 
     result = request_agent.invoke(
@@ -2409,6 +2575,11 @@ def chat_stream(
         request.project_id
     )
 
+    recover_legacy_chat_messages(
+        chat_id=request.chat_id,
+        user_id=user["id"],
+    )
+
     create_title_if_needed(
         request.chat_id,
         request.message,
@@ -2430,6 +2601,13 @@ def chat_stream(
             build_user_message(
                 request
             )
+        )
+
+        save_chat_message(
+            chat_id=request.chat_id,
+            user_id=user["id"],
+            sender="user",
+            content=request.message,
         )
 
         used_tools = set()
@@ -2700,6 +2878,25 @@ def chat_stream(
                         "tool",
                         name="Web",
                     )
+                )
+
+
+                # SAVE REAL ASSISTANT RESPONSE
+        if final_response is not None:
+
+            final_response_text = (
+                get_message_text(
+                    final_response.content
+                )
+            )
+
+            if final_response_text:
+
+                save_chat_message(
+                    chat_id=request.chat_id,
+                    user_id=user["id"],
+                    sender="assistant",
+                    content=final_response_text,
                 )
 
 

@@ -7368,7 +7368,11 @@ This will permanently delete the project, its project chats, and its stored file
                     )
                 }
 
+                <div className="chat-disclaimer">
+                    ChatOmni can make mistakes. Check important information.
+                </div>
 
+                
                 <div className="message-box">
 
                     <div

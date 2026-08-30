@@ -364,8 +364,8 @@ def get_agent(model_name: str = "luna"):
 
     SummarizationMiddleware(
         model=get_model("luna"),
-        trigger=("tokens", 30000),
-        keep=("messages", 12),
+        trigger=("tokens", 18000),
+        keep=("messages", 20),
     ),
 ],
 
