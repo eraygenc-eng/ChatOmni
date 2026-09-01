@@ -373,6 +373,3 @@ def get_agent(model_name: str = "luna"):
     store=long_term_memory,
     context_schema=Context,
 )
-
-
-# En son token sınırı güncellemesi yaptık
